@@ -185,12 +185,27 @@ proc readPoint(
     clamp(ry.value, 0, max(0, maxY))
   )
 
+const BareOrderKeys = ["intent", "target", "face", "say"]
+  ## What makes a bare object an ORDER rather than a reply with no order in it:
+  ## at least one of the per-cog fields. A payload carrying only `note` still
+  ## raises, which is what the retry and the fallback exist for.
+
 proc cogEntries(payload: JsonNode): seq[tuple[id: string, node: JsonNode]] =
   ## The reply's `cogs` collection, accepted either as an ARRAY of objects or
   ## as an OBJECT keyed by cog id (both shapes are things models actually
   ## emit). Entries that are not objects are dropped.
+  ##
+  ## A BARE ORDER OBJECT with no `cogs` wrapper is accepted too
+  ## (design.md:549-551): a seat that commands exactly one cog quite reasonably
+  ## answers `{"intent": "hold", "target": [500, 240]}`, and rejecting that
+  ## spent a retry and then a whole fallback turn on a reply that said exactly
+  ## what it wanted (r1 review N12).
   let node = payload{"cogs"}
   if node.isNil:
+    if payload.kind == JObject:
+      for key in BareOrderKeys:
+        if not payload{key}.isNil:
+          return @[(payload{"id"}.getStr(), payload)]
     return @[]
   if node.kind == JArray:
     for item in node:

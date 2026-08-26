@@ -47,6 +47,42 @@ block cogsAsAnIdKeyedObject:
   check(a.orders[0].intent == intHold, "an id-keyed object is accepted")
   check(a.orders[0].targetX == 500, "its target is read")
 
+block aBareOrderObjectWithNoCogsWrapper:
+  ## design.md:549-551 lists this among the tolerated shapes: a seat that
+  ## commands exactly ONE cog quite reasonably answers with the order itself.
+  ## Rejecting it spent a retry and then a whole fallback turn (r1 review N12).
+  let a = parseOne("""{"intent":"hold","target":[500,240],"say":"choke"}""")
+  check(a.orders.len == 1, "a bare order object must produce one order")
+  check(a.orders[0].intent == intHold, "its intent is read")
+  check(a.orders[0].targetX == 500 and a.orders[0].targetY == 240,
+    "its target is read")
+  check(a.orders[0].say == "choke", "its say is read")
+  check(a.orders[0].id == Ids[0],
+    "the order is assigned to the seat's own cog by position")
+  let withNote = parseOne(
+    """{"note":"hold the choke","intent":"screen","target":[600,300]}""")
+  check(withNote.note == "hold the choke", "a bare order may carry a note")
+  check(withNote.orders[0].intent == intScreen, "its intent is read")
+  ## A reply with NO order in it is still a parse failure — that is the one
+  ## condition the retry and the fallback exist for.
+  check(parseFails("""{"note":"thinking about it"}"""),
+    "a note with no order must not be read as an order")
+
+block aTargetInsideAWallIsClampedNeverRejected:
+  ## design.md:1346-1350's other named case. The parser only bounds the target
+  ## to the map box; the walkable snap happens later, in the control layer's
+  ## nearestWalkable/nearestOpenCell, so an unreachable order still steers
+  ## (tests/test_control.nim's anUnreachableTargetStillMovesEveryTick).
+  let corner = parseOne(
+    """{"cogs":[{"id":"KNIGHT-alpha","intent":"hold","target":[0,0]}]}""")
+  check(corner.orders.len == 1, "a target inside the border wall is accepted")
+  check(corner.orders[0].targetX == 0 and corner.orders[0].targetY == 0,
+    "it is passed through to the control layer, which snaps it")
+  let offMap = parseOne(
+    """{"cogs":[{"id":"KNIGHT-alpha","intent":"hold","target":[99999,-5]}]}""")
+  check(offMap.orders[0].targetX == 1234 and offMap.orders[0].targetY == 0,
+    "an off-map target is clamped to the map box")
+
 block unknownAndHyphenatedIntents:
   check(parseIntent("FALL-BACK") == intFallBack, "hyphens normalise")
   check(parseIntent("  Fall Back ") == intFallBack, "spaces normalise")
