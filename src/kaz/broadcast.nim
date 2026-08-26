@@ -924,8 +924,20 @@ proc buildStateJson*(
   # momentum of the episode. Absent on every later frame — the client caches it.
   if leadSeries.len > 0:
     var teamNames = newJArray()
-    for team in sim.teams():
-      teamNames.add(%teamText(team))
+    if sim.hordeLoadout():
+      ## NOT team names: there is one side here. The two series `scanTeamLead`
+      ## ships for a horde episode are the squad's cumulative kills and the
+      ## leader's pressure, both as PERCENTAGES, and the inherited two-series
+      ## renderer plots their difference around its midline -- above the line
+      ## the squad is killing faster than the horde is closing, below it the
+      ## horde is winning. Shipping ["red", "blue"] here made the graph a
+      ## lives-lead tug of war between two teams that do not exist (r1 review
+      ## N18); the names only pick the two shading colours.
+      teamNames.add(%"kills")
+      teamNames.add(%"pressure")
+    else:
+      for team in sim.teams():
+        teamNames.add(%teamText(team))
     var pts = newJArray()
     for point in leadSeries:
       var row = newJArray()

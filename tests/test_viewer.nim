@@ -241,6 +241,29 @@ block theCommanderLinesWrapInsideTheFeedColumn:
   check(not page.contains("text-overflow: ellipsis;\n  white-space: nowrap"),
     "a sentence must never be ellipsised: widen the band instead")
 
+block theMomentumGraphAndTheVerdictAreRetargeted:
+  ## The inherited momentum graph plots a per-team LIVES LEAD, and the
+  ## inherited verdict chip says "<TEAM> WINS". Neither means anything for one
+  ## cooperative squad: sim.winner is always Red here, so the chip read
+  ## "RED WINS" even on a breach that lost the wave, and the caption still read
+  ## LIVES LEAD over two horde series (r1 review N18).
+  check(page.contains("label.textContent = 'KILLS vs HORDE PRESSURE';"),
+    "the game block must retarget the momentum caption")
+  check(page.contains("if (s.over && !KAZ_MODE) setVerdict(s.over);"),
+    "KAZ_MODE must not raise the inherited team verdict chip")
+  ## And the two series really are the horde's, on one scale.
+  var world = newHordeSim(maxTicks = 600, maxGames = 2)
+  world.gameEventLoggingEnabled = false
+  world.zombiesKilled = 90
+  let state = parseJson(world.buildStateJson(
+    newJArray(), true, 1, 600, false, true, -1, -1,
+    leadSeries = @[@[0, 0, 0], @[120, 50, 40]]))
+  check(state.hasKey("lead"), "the lead series must ship")
+  check(state["lead"]["teams"].len == 2, "two horde series")
+  check(state["lead"]["teams"][0].getStr() == "kills" and
+        state["lead"]["teams"][1].getStr() == "pressure",
+    "the series must be named for what they are, not for teams")
+
 block theWorstCaseTextFixtureIsShippedAndDriven:
   ## Item 15's last bullet: a repo whose viewer draws LLM-authored text ships a
   ## worst-case renderer fixture driven by `viewer_smoke.mjs

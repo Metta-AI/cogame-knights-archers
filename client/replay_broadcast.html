@@ -1892,7 +1892,11 @@ body[data-embed] #board { top: 0; height: 100%; }
     ingestBeats(s);
     recordMomentum(s);
 
-    if (s.ph === 'gameover') { renderEndcard(s); if (s.over) setVerdict(s.over); }
+    // KAZ_MODE: no team verdict. `sim.winner` is always Red in a one-squad
+    // co-op game, so the inherited chip read "RED WINS" whatever happened --
+    // including on a breach that lost the wave. The outcome is the endcard, the
+    // waveover banner and the waveover beat (r1 review N18).
+    if (s.ph === 'gameover') { renderEndcard(s); if (s.over && !KAZ_MODE) setVerdict(s.over); }
     else { $('endcard').classList.remove('on'); }
 
     // KNIGHTS-ARCHERS additions run last, over the inherited chrome's render.
@@ -4374,6 +4378,16 @@ button.beat-marker:focus-visible {
     }
   }
 
+  // The momentum graph under the scrubber is the inherited one, fed two horde
+  // series (kills % and leader pressure %) instead of a per-team lives lead --
+  // so its caption must not keep saying LIVES LEAD (r1 review N18).
+  function ensureMomentumLabel() {
+    var label = document.querySelector('.momentum-label');
+    if (!label || label.getAttribute('data-kaz') === '1') return;
+    label.setAttribute('data-kaz', '1');
+    label.textContent = 'KILLS vs HORDE PRESSURE';
+  }
+
   function ensureWaveChip() {
     if ($('kaz-wave')) return;
     var cap = $('clock-caption');
@@ -4582,6 +4596,7 @@ button.beat-marker:focus-visible {
   function kazFrame(s, ctx, jumped) {
     CTX = ctx || CTX;
     ensureWaveChip();
+    ensureMomentumLabel();
     if (jumped) {
       // A seek re-hydrates from a keyframe, so the dedup sets have to go with
       // it — otherwise a beat placed before the seek is never redrawn.

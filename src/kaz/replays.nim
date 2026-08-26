@@ -547,7 +547,16 @@ proc scanTeamLead(sim: SimServer): seq[int] =
     ## side here, so a per-team lives series would be a flat line; the two
     ## numbers a horde spectator actually watches are "how many have we killed"
     ## and "how close is the nearest one".
-    result.add(sim.zombiesKilled)
+    ##
+    ## BOTH ON THE SAME 0..100 SCALE. The inherited renderer plots the
+    ## DIFFERENCE of a two-entry series around its midline, so mixing a raw
+    ## kill count with a percentage drew a curve that meant nothing (r1 review
+    ## N18). Kills are reported against the episode's own scoring ceiling
+    ## (maxGames * roundTarget -- the value teamScore saturates at), so the
+    ## curve reads: above the midline the squad is killing faster than the
+    ## horde is closing, below it the horde is winning.
+    let ceiling = max(1, max(1, sim.config.maxGames) * max(1, sim.config.roundTarget))
+    result.add(min(100, sim.zombiesKilled * 100 div ceiling))
     result.add(sim.pressurePct())
   else:
     for team in sim.teams():
