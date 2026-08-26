@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>knights-archers — worst-case text fixture</title>
+<!--
+  ============================================================================
+  THE WORST-CASE RENDERER FIXTURE (acceptance checklist item 15, last bullet)
+  ============================================================================
+  docker_smoke.sh runs with no ANTHROPIC_API_KEY, so every seat in every replay
+  CI can produce plays a scripted baseline — and a scripted baseline's `say`
+  and `note` are four fixed short strings. The chrome that exists only to show
+  what a MODEL said is therefore never driven at its cap by any other gate:
+  the CI replay carries the 13-rune note "hold the gate", never a full-cap
+  160-rune remark on all four seats at once.
+
+  This page is that missing frame. It is NOT a mock:
+
+    * it fetches the real ../client/replay_broadcast.html, injects EVERY
+      <style> block from it, and injects the real page's body markup (scripts
+      stripped), so #stage / #scorebug / #killfeed / #board / #transport and
+      every rule that positions them are the shipped ones;
+    * it evaluates the real appended KNIGHTS-ARCHERS game block (the last
+      <script> in that page) and hands it a frame through its own public entry
+      points — window.KnightsArchersChrome.buildPlates / plates / frame /
+      event — so the strings under measurement are built by the shipped code,
+      not by this file;
+    * it mirrors relayout()'s own sizing loop (BOARD_ASPECT, --hudscale,
+      --topband, --band, #stage.tiny) and renders the same frame at FOUR
+      canvas sizes, including the 360px featured-match embed;
+    * it measures every drawn string LINE BY LINE (Range rects per character,
+      grouped into line boxes) against the frame, and asserts its own strings
+      are still full length — one quietly shortened remark would otherwise
+      leave it passing while testing nothing;
+    * it draws every measured line into a real 2D canvas at the position the
+      DOM laid it out, so `viewer_smoke.mjs --strict-text-bounds`'s own
+      fillText instrument sees the geometry (canvas_text.total > 0 rather than
+      the structurally-vacuous 0 this renderer reports on a replay, where the
+      shout bubble is sprite pixels rasterised in Nim);
+    * it sets data-replay-loaded="true" only when every assertion passed and
+      data-replay-error="<first failure>" otherwise, which is exactly what
+      viewer_smoke.mjs gates on.
+
+  The Nim half of this gate — the in-sim shout bubble, whose geometry no
+  browser can see because it is blitted into sprite pixels — is
+  tests/test_shouts.nim.
+
+  Run it the way ci.yml does:
+    mkdir -p /tmp/fix && cp replay-viewer/text_fixture.html /tmp/fix/index.html
+    cp client/replay_broadcast.html /tmp/fix/ && cp data/font.ttf /tmp/fix/
+    : > /tmp/fix/none.replay
+    node tools/ci/viewer_smoke.mjs --bundle /tmp/fix --replay /tmp/fix/none.replay \
+      --timeout 60 --strict-text-bounds
+-->
+<style>
+/* Fixture-only chrome. Nothing here styles anything under measurement: the
+   host boxes below carry the real page's CSS, and these rules only lay the
+   host boxes out on the fixture page and print the report. */
+html, body { margin: 0; background: #0b0704; color: #f2e8d8;
+  font: 12px/1.35 ui-monospace, monospace; }
+#fixture-cases { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; }
+.fixture-case { position: relative; flex: none; outline: 1px solid #4a3a28; }
+.fixture-case > .fixture-cap {
+  position: absolute; left: 0; top: -14px; font-size: 10px; color: #e8a33d;
+  z-index: 999; }
+/* The real page's #viewport is `position:absolute; inset:0`, so each host box
+   is the containing block for one whole composition. */
+.fixture-host { position: relative; overflow: hidden; }
+#fixture-mirrors { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; }
+canvas.fixture-mirror { display: block; outline: 1px solid #4a3a28; }
+#fixture-report { white-space: pre-wrap; padding: 8px; font-size: 11px; }
+.fixture-fail { color: #e0523a; }
+.fixture-ok { color: #45a85e; }
+/* The loading curtain is a full-frame overlay on the real page; it would hide
+   the composition in the artifact screenshot and has no text under test. */
+#lockerroom { display: none !important; }
+</style>
+</head>
+<body>
+<div id="fixture-cases"></div>
+<div id="fixture-mirrors"></div>
+<pre id="fixture-report">running…</pre>
+<script>
+'use strict';
+(function () {
+  // ---- what the SERVER caps these strings at ----------------------------
+  // directives.nim: MaxNoteRunes = 160, MaxSayRunes = ShoutMaxChars = 10.
+  // The fixture asserts the caps it uses against the shipped docs below, so a
+  // cap that moves in the sim and not here is a visible mismatch rather than a
+  // silently weaker fixture.
+  var NOTE_CAP = 160;
+  var SAY_CAP = 10;
+  var ALIASES = ['KNIGHT-alpha', 'KNIGHT-beta', 'ARCHER-alpha', 'ARCHER-beta'];
+  // Real policy names are spectator-side and land on the scorebug plates.
+  var POLICY_NAMES = [
+    'knights-archers-warden', 'knights-archers-volley',
+    'phalanx-baseline-seat-2', 'stand-baseline-seat-3'];
+
+  function repeat(ch, n) { var s = ''; while (s.length < n) s += ch; return s; }
+  // Two worst cases per remark: the widest glyph with NO break opportunity
+  // (the hardest thing a wrapping column can be handed) and a full-cap
+  // sentence with spaces, which is what a model actually writes.
+  var NOTE_SOLID = repeat('W', NOTE_CAP);
+  var NOTE_WORDS = (function () {
+    var words = ['archers', 'hold', 'the', 'choke', 'while', 'I', 'take',
+                 'the', 'north', 'lane', 'and', 'screen', 'the', 'leader'];
+    var s = '';
+    while (s.length < NOTE_CAP) s += (s ? ' ' : '') + words[s.length % words.length];
+    return s.slice(0, NOTE_CAP);
+  })();
+  var SAY_FULL = repeat('W', SAY_CAP);
+
+  var failures = [];
+  var lines = [];
+  var log = [];
+  function fail(what) { failures.push(what); }
+
+  function done() {
+    var root = document.documentElement;
+    var report = document.getElementById('fixture-report');
+    var head = 'measured ' + lines.length + ' text line(s) across ' +
+      log.length + ' case(s)';
+    if (failures.length) {
+      report.className = 'fixture-fail';
+      report.textContent = 'FAIL — ' + failures.length + ' problem(s)\n' +
+        failures.join('\n') + '\n\n' + head + '\n' + log.join('\n');
+      // The signal viewer_smoke.mjs fails on immediately.
+      root.setAttribute('data-replay-error',
+        failures.length + ' text-bounds failure(s): ' + failures[0]);
+      try { console.error('TEXT FIXTURE FAILED\n' + failures.join('\n')); } catch (e) {}
+    } else {
+      report.className = 'fixture-ok';
+      report.textContent = 'OK — ' + head + '\n' + log.join('\n');
+      root.setAttribute('data-replay-loaded', 'true');
+      try { console.log('TEXT FIXTURE OK: ' + head); } catch (e) {}
+    }
+  }
+
+  // ---- the frame built to hurt -------------------------------------------
+  // Every field the game block reads, at its cap, on every seat at once.
+  function worstFrame(note) {
+    var directives = [];
+    for (var seat = 0; seat < 4; seat++) {
+      directives.push({
+        wave: 1, turn: 7, seat: seat, alias: ALIASES[seat],
+        role: seat < 2 ? 'knight' : 'archer',
+        source: 'llm', note: note, say: SAY_FULL,
+        intent: 'intercept', target: [820, 300]
+      });
+    }
+    var heroes = [];
+    for (var i = 0; i < 4; i++) {
+      heroes.push({
+        name: POLICY_NAMES[i], alias: ALIASES[i],
+        role: i < 2 ? 'knight' : 'archer',
+        kills: 188, hits: 244, shots: 999, alive: i !== 3, fellAt: 2303
+      });
+    }
+    return {
+      t: 1200, st: 0, mx: 2304, ph: 'playing',
+      wave: 2, waves: 2, turn: 24, turns: 24,
+      teams: { red: { lives: 4 } },
+      heroes: heroes,
+      directives: directives,
+      horde: {
+        alive: 40, leaderGatePx: 1178, pressurePct: 97, spawnGatePx: 1178,
+        closestCallPx: 136, gateX: 40, breachX: 1178, teamScore: 0.999
+      },
+      beats: [
+        { k: 'wavestart', t: 0, wave: 1, waves: 2 },
+        { k: 'closecall', t: 600, gate_px: 136 },
+        { k: 'casualty', t: 1200, alias: ALIASES[3] },
+        { k: 'breach', t: 1800, zombie: 1888 },
+        { k: 'waveover', t: 2303, wave: 2, endRule: 'full_time', kills: 188 }
+      ]
+    };
+  }
+
+  // The events whose feed rows carry a name or an id — the longest each can be.
+  function worstEvents(s) {
+    return [
+      { k: 'kill', t: s.t, by: 0, byAlias: ALIASES[0], role: 'knight',
+        kills: 188, teamKills: 188, alive: 40, zombie: 1888, gate_px: 136 },
+      { k: 'lunge', t: s.t, zombie: 1888, at: ALIASES[2], atSlot: 2 },
+      { k: 'closecall', t: s.t, gate_px: 136, alive: 40 },
+      { k: 'spawn', t: s.t, count: 12, alive: 40, spawned: 188 },
+      { k: 'casualty', t: s.t, who: 3, alias: ALIASES[3], zombie: 1888 },
+      { k: 'breach', t: s.t, zombie: 1888 }
+    ];
+  }
+
+  // ---- geometry ----------------------------------------------------------
+  // Per-LINE rects, not per-element: a wrapped sentence's element box says
+  // nothing about where its last line ended up, and a text node that overflows
+  // its own element is exactly what "the box is too small" looks like.
+  function lineRectsOf(node) {
+    var text = node.nodeValue || '';
+    var out = [];
+    if (!text.trim()) return out;
+    var range = document.createRange();
+    var current = null;
+    for (var i = 0; i < text.length; i++) {
+      range.setStart(node, i);
+      range.setEnd(node, i + 1);
+      var r = range.getBoundingClientRect();
+      if (!r || (!r.width && !r.height)) continue;   // a collapsed space
+      if (current && Math.abs(r.top - current.top) <= 1.5) {
+        current.left = Math.min(current.left, r.left);
+        current.right = Math.max(current.right, r.right);
+        current.bottom = Math.max(current.bottom, r.bottom);
+        current.text += text[i];
+      } else {
+        if (current) out.push(current);
+        current = { left: r.left, right: r.right, top: r.top,
+                    bottom: r.bottom, text: text[i] };
+      }
+    }
+    if (current) out.push(current);
+    return out;
+  }
+
+  function textNodesOf(el) {
+    var out = [];
+    var walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+    var n;
+    while ((n = walk.nextNode())) out.push(n);
+    return out;
+  }
+
+  function inside(rect, box, tol) {
+    return rect.left >= box.left - tol && rect.top >= box.top - tol &&
+      rect.right <= box.right + tol && rect.bottom <= box.bottom + tol;
+  }
+
+  function overlaps(a, b) {
+    return a.left < b.right && b.left < a.right &&
+      a.top < b.bottom && b.top < a.bottom;
+  }
+
+  // ---- relayout(), mirrored ---------------------------------------------
+  // The shipped relayout() lives inside the page's main IIFE, which cannot run
+  // without the wasm bundle; this is the same loop, and the fixture asserts
+  // the values it produces land the chrome where the CSS expects it.
+  var BOARD_ASPECT = 1235 / 659;
+  function relayout(host, stage, boxW, boxH) {
+    var root = document.documentElement;
+    var scorebug = host.querySelector('#scorebug');
+    var transport = host.querySelector('#transport');
+    var topBand = 0, band = 0, stageW = 0, stageH = 0;
+    for (var pass = 0; pass < 4; pass++) {
+      var prevTop = topBand, prevBand = band;
+      var availH = Math.max(1, boxH - topBand - band);
+      var boardW, boardH;
+      if (boxW / availH > BOARD_ASPECT) {
+        boardH = availH; boardW = Math.round(availH * BOARD_ASPECT);
+      } else {
+        boardW = boxW; boardH = Math.round(boxW / BOARD_ASPECT);
+      }
+      stageW = boardW; stageH = boardH + topBand + band;
+      stage.style.width = stageW + 'px';
+      stage.style.height = stageH + 'px';
+      var scale = Math.max(0.5, Math.min(1.6, boardW / 760));
+      root.style.setProperty('--hudscale', scale.toFixed(3));
+      stage.classList.toggle('tiny', boardW <= 620);
+      topBand = scorebug ? scorebug.offsetHeight : 0;
+      band = transport ? transport.offsetHeight : 0;
+      root.style.setProperty('--topband', topBand + 'px');
+      root.style.setProperty('--band', band + 'px');
+      if (Math.abs(topBand - prevTop) < 0.5 && Math.abs(band - prevBand) < 0.5) break;
+    }
+    return { w: stageW, h: stageH, topBand: topBand, band: band };
+  }
+
+  // ---- the fixture's own minimal chrome context --------------------------
+  // Only what the game block asks for. `pushFeed` is the inherited queue's
+  // insert + 4-row cap WITHOUT its dwell timer, so the rows stay put long
+  // enough to be measured; the geometry does not depend on the timer.
+  function makeCtx(host) {
+    var feed = host.querySelector('#killfeed');
+    return {
+      esc: function (t) {
+        return String(t == null ? '' : t)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      },
+      fmt: function (sec) {
+        var s = Math.max(0, Math.floor(sec));
+        return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2);
+      },
+      shortName: function (name) { return String(name || ''); },
+      send: function () {},
+      banner: function (text, cls) {
+        // The inherited lane shows ONE chip at a time (a queue with a minimum
+        // hold); the fixture keeps the newest, which is the widest case.
+        var lane = host.querySelector('#bannerlane');
+        if (!lane) return;
+        lane.innerHTML = '';
+        var chip = document.createElement('div');
+        chip.className = 'banner-chip ' + (cls || '');
+        chip.textContent = text;
+        lane.appendChild(chip);
+      },
+      pushFeed: function (row) {
+        if (!feed) return;
+        feed.insertBefore(row, feed.firstChild);
+        while (feed.children.length > 4) feed.removeChild(feed.lastChild);
+      },
+      togglePov: function () {},
+      getState: function () { return null; }
+    };
+  }
+
+  // ---- one case: one canvas size, one note string ------------------------
+  // Every feed row enters on the inherited `feedin` animation (a 250 ms
+  // overshoot-and-settle translateX). Item 15 asks for "an entrance animation
+  // played through to settle", and measuring mid-flight is not a defect —
+  // 12 px of the settling transform read as 12 px off the frame here before
+  // this wait existed.
+  function settle(hostBox) {
+    var pending = [];
+    var running = hostBox.getAnimations ? hostBox.getAnimations({ subtree: true }) : [];
+    for (var i = 0; i < running.length; i++) {
+      var timing = {};
+      try { timing = running[i].effect.getComputedTiming(); } catch (e) {}
+      // The inherited chrome runs INFINITE ambient animations (#grain's
+      // phosphor drift, the locker-room bar): their `finished` promise never
+      // settles, so wait only on the one-shot entrances.
+      if (timing.iterations === Infinity) continue;
+      if (running[i].finished) pending.push(running[i].finished.catch(function () {}));
+    }
+    var settled = Promise.all(pending);
+    var cap = new Promise(function (res) { setTimeout(res, 800); });
+    return Promise.race([settled, cap]).then(function () {
+      return new Promise(function (res) {
+        requestAnimationFrame(function () { setTimeout(res, 80); });
+      });
+    });
+  }
+
+  function runCase(pageBodyHtml, label, boxW, boxH, note) {
+    var wrap = document.createElement('div');
+    wrap.className = 'fixture-case';
+    wrap.style.width = boxW + 'px';
+    wrap.style.height = boxH + 'px';
+    var cap = document.createElement('div');
+    cap.className = 'fixture-cap';
+    cap.textContent = label;
+    var hostBox = document.createElement('div');
+    hostBox.className = 'fixture-host';
+    hostBox.style.width = boxW + 'px';
+    hostBox.style.height = boxH + 'px';
+    hostBox.innerHTML = pageBodyHtml;
+    wrap.appendChild(cap);
+    wrap.appendChild(hostBox);
+    document.getElementById('fixture-cases').appendChild(wrap);
+
+    var stage = hostBox.querySelector('#stage');
+    if (!stage) { fail(label + ': the real page has no #stage'); return null; }
+
+    // The game block reaches its elements through document.getElementById, so
+    // exactly ONE case may be in the document at a time. Earlier cases are
+    // measured and then dropped (see runAll).
+    var ctx = makeCtx(hostBox);
+    var chrome = window.KnightsArchersChrome;
+    if (!chrome) { fail('the appended game block did not install itself'); return null; }
+    chrome.install(ctx);
+    var box = relayout(hostBox, stage, boxW, boxH);
+    var sides = [hostBox.querySelector('#plates-l'), hostBox.querySelector('#plates-r')];
+    var s = worstFrame(note);
+    chrome.buildPlates(sides, ctx);
+    chrome.plates(s, ctx);
+    chrome.frame(s, ctx, false);
+    // The pressure bar is appended on the first frame, so the bands have to be
+    // re-measured after it lands — the shipped block asks the page for exactly
+    // this by dispatching a resize.
+    box = relayout(hostBox, stage, boxW, boxH);
+    var events = worstEvents(s);
+    for (var i = 0; i < events.length; i++) chrome.event(events[i], s, ctx);
+    // The four commander lines are pushed LAST so all four survive the feed's
+    // four-row cap: this is the frame where every seat spoke at once.
+    chrome.frame(s, ctx, true);
+
+    return settle(hostBox).then(function () {
+      return measureCase(label, note, hostBox, stage, wrap, box);
+    });
+  }
+
+  function measureCase(label, note, hostBox, stage, wrap, box) {
+    var stageRect = stage.getBoundingClientRect();
+    var boardEl = hostBox.querySelector('#board');
+    var boardRect = boardEl ? boardEl.getBoundingClientRect() : stageRect;
+    var measured = [];
+
+    // Sentences: every line must be inside the stage, at full length, never
+    // ellipsised (item 15: ellipsis is a defect for a sentence).
+    var sentences = hostBox.querySelectorAll(
+      '#killfeed .feed-row, #bannerlane .banner-chip, #kaz-read, #kaz-wave, ' +
+      '#kaz-chalk span');
+    for (var i = 0; i < sentences.length; i++) {
+      var el = sentences[i];
+      if (!el.offsetParent) continue;                    // not shown
+      var nodes = textNodesOf(el);
+      for (var n = 0; n < nodes.length; n++) {
+        var rects = lineRectsOf(nodes[n]);
+        for (var r = 0; r < rects.length; r++) {
+          measured.push({ el: el, rect: rects[r], text: rects[r].text });
+          if (!inside(rects[r], stageRect, 1)) {
+            fail(label + ': a drawn line left the frame — ' +
+              JSON.stringify(rects[r].text.slice(0, 48)) +
+              ' at [' + Math.round(rects[r].left - stageRect.left) + ',' +
+              Math.round(rects[r].top - stageRect.top) + ',' +
+              Math.round(rects[r].right - stageRect.left) + ',' +
+              Math.round(rects[r].bottom - stageRect.top) + '] in ' +
+              Math.round(stageRect.width) + 'x' + Math.round(stageRect.height) +
+              ' (' + (el.id || el.className) + ')');
+          }
+        }
+      }
+      if (/\u2026/.test(el.textContent)) {
+        fail(label + ': a sentence was ellipsised — ' +
+          JSON.stringify(el.textContent.slice(0, 48)) + ' (' +
+          (el.id || el.className) + ')');
+      }
+    }
+
+    // THE FIXTURE'S OWN STRINGS ARE STILL FULL LENGTH. One quietly shortened
+    // remark leaves everything above passing while testing nothing.
+    var feedText = '';
+    var rows = hostBox.querySelectorAll('#killfeed .feed-row');
+    for (var i = 0; i < rows.length; i++) feedText += '\u0000' + rows[i].textContent;
+    var seen = 0;
+    for (var seat = 0; seat < 4; seat++) {
+      if (feedText.indexOf(ALIASES[seat] + ':') >= 0) seen++;
+    }
+    if (seen !== 4) {
+      fail(label + ': ' + seen + ' of 4 commander lines reached the feed');
+    }
+    var full = (feedText.split(note).length - 1);
+    if (full !== 4) {
+      fail(label + ': the full ' + note.length + '-rune note survived on ' +
+        full + ' of 4 rows (a shortened remark makes this fixture vacuous)');
+    }
+
+    // Labels: ellipsis is legitimate (a policy name in a 360px plate), but the
+    // element must still be inside the frame.
+    var labels = hostBox.querySelectorAll('.plate-name, .lives-num, .kaz-shots');
+    for (var i = 0; i < labels.length; i++) {
+      var lrect = labels[i].getBoundingClientRect();
+      if (!lrect.width && !lrect.height) continue;
+      if (!inside(lrect, stageRect, 1)) {
+        fail(label + ': the scorebug label ' + (labels[i].id || labels[i].className) +
+          ' is outside the frame');
+      }
+    }
+
+    // The pressure strip belongs in the TOP BAND, under the plates — never
+    // over them, and never in the transport band.
+    var press = hostBox.querySelector('#kaz-pressure');
+    if (press && press.classList.contains('on')) {
+      var prect = press.getBoundingClientRect();
+      var plates = hostBox.querySelectorAll('#scorebug .plate');
+      for (var i = 0; i < plates.length; i++) {
+        if (overlaps(prect, plates[i].getBoundingClientRect())) {
+          fail(label + ': the pressure strip overlaps a scorebug plate');
+          break;
+        }
+      }
+      var transport = hostBox.querySelector('#transport');
+      if (transport && overlaps(prect, transport.getBoundingClientRect())) {
+        fail(label + ': the pressure strip reaches into the transport band');
+      }
+      if (!inside(prect, stageRect, 1)) {
+        fail(label + ': the pressure strip is outside the frame');
+      }
+    }
+
+    // The closest-call caption is drawn ON THE BOARD, beside its chalk line —
+    // not in the scorebug band, where #chrome draws over it.
+    var chalkCap = hostBox.querySelector('#kaz-chalk-cap');
+    var chalk = hostBox.querySelector('#kaz-chalk');
+    if (chalk && chalk.classList.contains('on') && chalkCap) {
+      var crect = chalkCap.getBoundingClientRect();
+      if (!crect.width) {
+        fail(label + ': the closest-call caption has no box');
+      } else if (!inside(crect, boardRect, 1)) {
+        fail(label + ': the closest-call caption is outside the board ' +
+          '(it must not land in the scorebug or transport band)');
+      }
+    } else {
+      fail(label + ': the closest-call chalk line did not draw');
+    }
+
+    log.push(label + ': stage ' + Math.round(stageRect.width) + 'x' +
+      Math.round(stageRect.height) + ', topband ' + box.topBand + ', band ' +
+      box.band + ', ' + rows.length + ' feed rows, ' + measured.length +
+      ' text lines');
+    var caseLines = [];
+    for (var m = 0; m < measured.length; m++) {
+      var style = getComputedStyle(measured[m].el);
+      caseLines.push({
+        text: measured[m].text,
+        font: style.font || (style.fontSize + ' ' + style.fontFamily),
+        x: measured[m].rect.left - stageRect.left,
+        y: measured[m].rect.top - stageRect.top
+      });
+    }
+    lines = lines.concat(caseLines);
+    mirrorCase(label, Math.round(stageRect.width), Math.round(stageRect.height),
+      caseLines);
+    return wrap;
+  }
+
+  // ---- the canvas mirror -------------------------------------------------
+  // ONE canvas per case, sized to THAT case's stage, carrying every line the
+  // DOM laid out at the position and in the font the DOM used. So
+  // viewer_smoke.mjs's own fillText instrument measures this fixture's
+  // geometry against the same frame the assertions above used: a line the DOM
+  // put off-frame lands off-canvas here, which is exactly what
+  // --strict-text-bounds counts as never_inside. Without this the instrument
+  // reports canvas_text.total 0 for this renderer -- the shout bubble is
+  // sprite pixels rasterised in Nim and the feed is DOM -- and item 15 says a
+  // total of 0 is evidence of nothing.
+  function mirrorCase(label, w, h, caseLines) {
+    var canvas = document.createElement('canvas');
+    canvas.className = 'fixture-mirror';
+    canvas.width = Math.max(10, w);
+    canvas.height = Math.max(10, h);
+    canvas.title = label;
+    document.getElementById('fixture-mirrors').appendChild(canvas);
+    var g = canvas.getContext('2d');
+    g.fillStyle = '#16110d';
+    g.fillRect(0, 0, canvas.width, canvas.height);
+    g.fillStyle = '#f2e8d8';
+    g.textAlign = 'left';
+    g.textBaseline = 'top';
+    for (var i = 0; i < caseLines.length; i++) {
+      if (caseLines[i].font) g.font = caseLines[i].font;
+      g.fillText(caseLines[i].text, caseLines[i].x, caseLines[i].y);
+    }
+  }
+
+  // ---- drive it ----------------------------------------------------------
+  var CASES = [
+    ['1280x800 desktop', 1280, 800],
+    ['900x600 embed', 900, 600],
+    ['640x480 small', 640, 480],
+    ['360x640 featured', 360, 640]
+  ];
+
+  function runAll(pageBodyHtml) {
+    var plan = [];
+    for (var c = 0; c < CASES.length; c++) {
+      for (var n = 0; n < 2; n++) {
+        plan.push({
+          label: CASES[c][0] + (n === 0 ? ' / solid' : ' / words'),
+          w: CASES[c][1], h: CASES[c][2],
+          note: n === 0 ? NOTE_SOLID : NOTE_WORDS,
+          last: c === CASES.length - 1 && n === 1
+        });
+      }
+    }
+    // Strictly sequential: the game block resolves its elements through
+    // document.getElementById, so exactly one composition may be live at a
+    // time. Each case is measured and then dropped (the last one stays, for
+    // the artifact screenshot).
+    return plan.reduce(function (chain, step) {
+      return chain.then(function () {
+        return runCase(pageBodyHtml, step.label, step.w, step.h, step.note);
+      }).then(function (wrap) {
+        if (wrap && !step.last) wrap.remove();
+      });
+    }, Promise.resolve()).then(done);
+  }
+
+  function boot() {
+    fetch('./replay_broadcast.html').then(function (res) {
+      if (!res.ok) throw new Error('replay_broadcast.html: HTTP ' + res.status);
+      return res.text();
+    }).then(function (html) {
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      var styles = doc.querySelectorAll('style');
+      if (!styles.length) throw new Error('the real page shipped no <style>');
+      for (var i = 0; i < styles.length; i++) {
+        var st = document.createElement('style');
+        st.textContent = styles[i].textContent;
+        document.head.appendChild(st);
+      }
+      // The fixture's own overrides must win: re-append them last.
+      var own = document.querySelector('head > style');
+      if (own) document.head.appendChild(own);
+      var scripts = doc.querySelectorAll('script');
+      if (!scripts.length) throw new Error('the real page shipped no <script>');
+      var block = scripts[scripts.length - 1].textContent;
+      if (block.indexOf('window.KnightsArchersChrome') < 0) {
+        throw new Error('the last <script> is not the appended game block');
+      }
+      // The real game block, evaluated as itself. It is an IIFE that installs
+      // window.KnightsArchersChrome and touches no DOM until it is called.
+      (new Function(block))();
+      var body = doc.body.cloneNode(true);
+      var kill = body.querySelectorAll('script');
+      for (var i = 0; i < kill.length; i++) kill[i].parentNode.removeChild(kill[i]);
+      var pageBodyHtml = body.innerHTML;
+      // font-display: block — measure in the real face, never in a fallback.
+      var ready = document.fonts && document.fonts.ready
+        ? document.fonts.ready : Promise.resolve();
+      return ready.then(function () {
+        return new Promise(function (res) { setTimeout(res, 100); });
+      }).then(function () { runAll(pageBodyHtml); });
+    }).catch(function (error) {
+      fail('fixture boot failed: ' + (error && error.message || error));
+      done();
+    });
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>

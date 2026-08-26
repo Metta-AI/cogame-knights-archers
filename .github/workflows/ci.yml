@@ -221,6 +221,74 @@ jobs:
           retention-days: 14
 
   # ---------------------------------------------------------------------
+  # The WORST-CASE RENDERER FIXTURE (acceptance checklist item 15, last
+  # bullet). docker-smoke runs without an ANTHROPIC_API_KEY, so every seat in
+  # every replay CI can produce plays a scripted baseline -- and a scripted
+  # baseline's `note` is the 13-rune "hold the gate". The chrome that exists
+  # only to show what a MODEL said (the #killfeed commander lines) is
+  # therefore never driven at its 160-rune cap by the wasm-viewer smoke, and
+  # the shout bubble is rasterised into sprite pixels inside the sim, where
+  # viewer_smoke.mjs's fillText instrument cannot see it at all
+  # (canvas_text.total 0, which item 15 says is evidence of nothing).
+  #
+  # replay-viewer/text_fixture.html is that missing frame: it loads the REAL
+  # client/replay_broadcast.html (its styles, its markup and its appended
+  # KNIGHTS-ARCHERS game block), hands it a full-cap remark on every seat at
+  # once at four canvas sizes including the 360px featured embed, plays the
+  # entrance animations through to settle, asserts every drawn LINE is inside
+  # the frame and that its own strings are still full length, and mirrors every
+  # measured line into a real 2D canvas so --strict-text-bounds has something
+  # to gate. It sets data-replay-error on any failure, which is what
+  # viewer_smoke.mjs fails on. The Nim half -- the in-sim shout bubble's
+  # geometry -- is tests/test_shouts.nim, in the `test` job.
+  # ---------------------------------------------------------------------
+  text-fixture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The same pin as wasm-viewer, in both halves. Bump them together.
+      - name: Install Playwright (pinned 1.55.0)
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright@1.55.0
+          npx --yes playwright@1.55.0 install --with-deps chromium
+
+      - name: Render the worst-case text fixture in a real browser
+        run: |
+          set -euo pipefail
+          fix="$RUNNER_TEMP/text-fixture"
+          mkdir -p "${fix}" "$PWD/dist/text-fixture"
+          # index.html, so viewer_smoke.mjs --bundle serves the fixture as the
+          # page under test; it fetches the real chrome page and the real
+          # broadcast font from the same directory.
+          cp replay-viewer/text_fixture.html "${fix}/index.html"
+          cp client/replay_broadcast.html "${fix}/replay_broadcast.html"
+          cp data/font.ttf "${fix}/font.ttf"
+          : > "${fix}/unused.replay"
+          node tools/ci/viewer_smoke.mjs \
+            --bundle "${fix}" \
+            --replay "${fix}/unused.replay" \
+            --timeout 90 \
+            --strict-text-bounds \
+            --out "$PWD/dist/text-fixture"
+
+      - name: Upload the text fixture evidence
+        # Always: the screenshot and the JSON are most useful when it is red.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: text-fixture
+          path: dist/text-fixture
+          if-no-files-found: warn
+          retention-days: 14
+
+  # ---------------------------------------------------------------------
   # The static replay viewer. The platform serves THIS bundle from
   # /v2/coworlds/replays/static/<cow_id>/<sha>/index.html, so a bundle that
   # does not build (or is missing its wasm) means every hosted replay hangs.

@@ -210,6 +210,33 @@ block theHordeReadoutsArePresent:
   check(page.contains("IS THROUGH THE GATE"), "the breach banner")
   check(page.contains("THE LINE HOLDS"), "the wave-cleared banner")
 
+block theWorstCaseTextFixtureIsShippedAndDriven:
+  ## Item 15's last bullet: a repo whose viewer draws LLM-authored text ships a
+  ## worst-case renderer fixture driven by `viewer_smoke.mjs
+  ## --strict-text-bounds` in its own ci.yml step. Both halves are asserted
+  ## here so neither can be quietly dropped: the page, and the step that runs
+  ## it. (The in-sim shout bubble's geometry is tests/test_shouts.nim; the
+  ## browser cannot see it, because it is blitted into sprite pixels.)
+  const fixturePath = "replay-viewer/text_fixture.html"
+  check(fileExists(fixturePath), fixturePath & " is missing")
+  let fixture = readFile(fixturePath)
+  check(fixture.contains("replay_broadcast.html"),
+    "the fixture must load the REAL chrome page, not a copy of it")
+  check(fixture.contains("window.KnightsArchersChrome"),
+    "the fixture must drive the real appended game block")
+  check(fixture.contains("data-replay-loaded") and
+        fixture.contains("data-replay-error"),
+    "the fixture must report through the markers viewer_smoke.mjs reads")
+  check(fixture.contains("fillText"),
+    "the fixture must mirror every measured line into a canvas, or " &
+      "--strict-text-bounds gates a structurally vacuous 0")
+  let ci = readFile(".github/workflows/ci.yml")
+  check(ci.contains("text_fixture.html"),
+    "ci.yml must drive replay-viewer/text_fixture.html in its own step")
+  let at = ci.find("text_fixture.html")
+  check(ci.find("--strict-text-bounds", at) > at,
+    "the fixture step must pass --strict-text-bounds")
+
 block noStarterIdentifierSurvives:
   for path in walkDirRec("src"):
     if not path.endsWith(".nim"):
