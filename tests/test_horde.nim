@@ -185,9 +185,20 @@ block noHashedFieldTakesATargetWidthConstant:
 
 block theNewSimModulesAreIntegerOnly:
   ## Nim's `int` is 32 bits under --cpu:wasm32 and a float would additionally
-  ## depend on whichever libm the build container shipped, so the three new
-  ## hashed modules carry no floating point and no libm call at all.
-  for path in ["src/kaz/horde.nim", "src/kaz/arrows.nim", "src/kaz/melee.nim"]:
+  ## depend on whichever libm the build container shipped, so the new hashed
+  ## modules carry no floating point and no libm call at all.
+  ##
+  ## design.md:830-832 also names sim.nim, sim_types.nim and sim_state.nim.
+  ## Those three are deliberately NOT swept and cannot be (r1 review N23):
+  ## sim_types owns `aimVector`/`bradsOfVector`, the float trig the RENDER path
+  ## reads and the sim never calls; sim_state's float coordinates are event
+  ## payloads (`emitEvent(x = float(...))`) that reach the tier-2 JSON stream,
+  ## not the hash; sim.nim carries the inherited paintball render helpers. The
+  ## rule this block enforces is the one that matters -- no float on a HASHED
+  ## code path -- and control.nim is swept too even though it is not hashed,
+  ## because it is the module the horde's steering shares arithmetic with.
+  for path in ["src/kaz/horde.nim", "src/kaz/arrows.nim", "src/kaz/melee.nim",
+               "src/kaz/control.nim"]:
     var i = 0
     for line in readFile(path).splitLines():
       inc i
