@@ -154,6 +154,24 @@ nim r --hints:off -d:release --path:src tests/test_horde.nim
 `tests/test_perf.nim` is release-only (the `NIM_TESTS_RELEASE_ONLY` repo
 variable): a debug build measures the compiler, not the game.
 
+## Where the code and the design note differ
+
+The design note is the plan; these are the places where building it moved a
+number, and each move has its reason in the code next to it. **The code is
+authoritative** — it is what the tests, the tuned baseline and CI pin. Do not
+"restore" a note value here without re-running the measurement it replaced.
+
+| the note | the code | why |
+|---|---|---|
+| `knightCooldown` 18 ticks = 0.75 s per swing (design.md:199) | the swing PERIOD is 18 + `swingTicks` 4 = **22 ticks (0.92 s)** (`sim.nim:3470`) | the cooldown starts after the four lit ticks; `tests/test_combat.nim` pins the period, and every doc quotes it |
+| `NavCell` 34 px (design.md:161, 658) | `HordeNavCell`/`NavCell` = **12 px** (`sim_types.nim:827`, `control.nim:24`) | a 34 px cell leaves no node inside the arena's ~26 px corridors, and a zombie pressed west for 2000 ticks stood in a wall |
+| a knight's `intercept` standoff 0 px (design.md:664-670) | **44 px** = `knightReach - 8` (`control.nim:358`) | walking onto the leader crosses its own 26 px kill radius; a measured `phalanx` x4 episode ended `casualty` after two kills |
+| "knights never fall back" (design.md:713) | three or more bodies inside 90 px → `fall_back` 140 px (`baselines.nim:149`) | `tools/tune_baselines.nim` chose the cell; `ci.yml` re-checks it every push |
+| a 52 px Euclidean attack sector (design.md:196) | the wedge is clipped along the AIM AXIS, so a 45-degree body connects at ~73 px (`melee.nim:38`) | the starter's arc-cone machinery, which the baseline was tuned against; pinned by `tests/test_combat.nim` |
+| `fallback.cause` has five values (design.md:450) | six: `throttled` as well (`decide.nim:444`) | reporting a 429 as `parse_error` made a hosted log unreadable; no schema constrains the field |
+| `client/league_replayer.html` is kept (design.md:748) | the file is gone, and `Dockerfile.replay-viewer` drops every reference | the platform serves the static bundle; the manifest declares only that |
+| the turn-spacing floor "is not a sleep on the critical path" (design.md:413) | it IS a bounded `sleep` in `engine.turn` (`decide.nim:368`) | the note's own arithmetic (48 turns x 9 s = 432 s) prices the spacing as wall time per turn; stepping the sim through the wait would end each wave after a handful of turns in `fastMode` |
+
 ## Things that are NOT here
 
 Deleted with the mechanics they belonged to, not disabled: the hitscan gun and
@@ -163,3 +181,12 @@ grenades and the barrage, med kits, shields, cardboard barriers, the procedural
 map generator and curated pool, the map editor, mapkit, achievements, and
 four-team free-for-all. If you find a live reference to one, it is residue —
 delete it rather than reviving it.
+
+**Not all of it is deleted yet.** `src/kaz/paint.nim` and the
+grenade/med-kit/shield/spray-can/barrier/heart/hill machinery in `sim.nim` and
+`global.nim` are still in the tree, config-gated OFF (`sim.nim:171`
+`hordeLoadout`) and unreachable under every shipped variant — the horde step
+body calls none of them and `checkHordeEnd` replaces the classic end checks.
+Removing them is a mechanical but large deletion across the inherited engine,
+and it is not a behaviour change: treat it as work still to do, not as a live
+mechanic.
