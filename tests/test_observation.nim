@@ -63,6 +63,19 @@ block thePressureBlockAgreesWithAFullRescan:
   check(view["pressure"]["killed"].getInt() == world.waveKillsSoFar,
     "pressure.killed must equal the wave's kill count")
 
+block theSpawnRateIsZombiesPerSecond:
+  ## The field is named per SECOND and the docs quote 0.29/s rising to 1.20/s,
+  ## so it must be a small positive rate -- not the sim's internal per-mille
+  ## per tick multiplied by the frame rate, which reported 288 (r1 review N10).
+  let view = parseJson(engine.seatViewJson(world, 0, 7, 24))
+  let rate = view["pressure"]["spawn_rate_per_s"].getFloat()
+  check(rate > 0.0, "the spawn rate must be positive while a wave is running")
+  check(rate <= 2.0,
+    "spawn_rate_per_s must be zombies per second, got " & $rate)
+  let perMille = world.spawnRatePerMille(world.gameTicksElapsed())
+  check(abs(rate - float(perMille * TargetFps) / 1000.0) < 1.0e-9,
+    "spawn_rate_per_s must be spawnRatePerMille * fps / 1000")
+
 block theSeedAndTheRngNeverReachASeat:
   for seat in 0 ..< world.seatCount():
     let text = engine.seatViewJson(world, seat, 7, 24)
