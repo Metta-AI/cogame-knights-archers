@@ -4237,7 +4237,7 @@ proc resetToLobby*(sim: var SimServer) =
   ## with the roster already emptied above: no one is left to be engulfed, so
   ## the displacement pass this returns true for has nothing to do.)
   if sim.config.numAgents > 0:
-    ## A paintball EPISODE is two games, and the replay codec stops parsing at
+    ## An EPISODE is two games (two waves), and the replay codec stops parsing at
     ## the first non-increasing tick hash (ReplaySpec.hashOrder = rhoStop). So
     ## the tick clock must stay MONOTONIC across the games: rewinding it here
     ## truncated the recording at game one and threw the whole visitor half —

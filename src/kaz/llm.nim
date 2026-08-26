@@ -1,15 +1,17 @@
 ## Claude-backed squad command. A policy is just a prompt: the game server
-## composes the seat's fogged view plus that seat's PLAYER_PROMPT and asks
-## Claude what its cogs do for the next 4.5 seconds.
+## composes the seat's view plus that seat's PLAYER_PROMPT and asks Claude what
+## its hero does for the next 4 seconds (`turnTicks` = 96 ticks at 24 Hz; the
+## 4.5 s figure is `attempt1Ms`, the deadline on the CALL, not the cadence).
 ##
 ## Ported from `cogame-bullwhip/src/bullwhip/llm.nim`, behaviour for
 ## behaviour — the credential ladder, the Bedrock model rotation, the
 ## fence-tolerant JSON extraction and the rune-boundary truncation are all
 ## that file's, because they are all scar tissue from real hosted failures.
 ##
-## Paintball is a SIMULTANEOUS-decision game, so both seats' calls go out as
-## ONE parallel batch per turn (`curly.makeRequests`). Seats are never queried
-## sequentially: that is what keeps 40 turns inside the wall-clock budget.
+## Knights-archers is a SIMULTANEOUS-decision game, so all FOUR seats' calls go
+## out as ONE parallel batch per turn (`curly.makeRequests`). Seats are never
+## queried sequentially: that is what keeps 48 turns inside the wall-clock
+## budget.
 ##
 ## Credentials, in order of preference:
 ##   Bedrock sidecar (AWS_ENDPOINT_URL_BEDROCK_RUNTIME + AWS_BEARER_TOKEN_BEDROCK)

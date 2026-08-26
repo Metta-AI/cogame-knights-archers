@@ -1895,7 +1895,7 @@ proc runServerLoop*(
       continue
 
     # ------------------------------------------------------------------
-    #  PAINTBALL: the decision turn, then the control-compiled actuator
+    #  KNIGHTS-ARCHERS: the decision turn, then the control-compiled actuator
     #  masks. This is the determinism boundary — the control layer and the
     #  LLM live on THIS side of it, and only the masks below are recorded,
     #  so the wasm viewer re-derives the whole match from them without ever

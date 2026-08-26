@@ -448,15 +448,6 @@ proc turn*(
         userMessage(engine.seats[seat].prompt, user))
       batch.post(request.url, request.headers, request.body, $seat)
     let started = getMonoTime()
-    # curly hands the deadline to CURLOPT_TIMEOUT, whose granularity is WHOLE
-    # SECONDS, so this conversion FLOORS — and a config that is not a whole
-    # number of seconds is therefore not the deadline it claims to be. 0.1.2
-    # shipped `attempt1Ms: 4500` and really ran with 4 s against a sidecar
-    # whose median call measured 4618 ms; every successful LLM directive in
-    # that release reported a latency of 3999–4001 ms, i.e. it was the
-    # deadline answering, not the model. sim_config now REJECTS a sub-second
-    # value, so the floor below is an identity: 6000 -> 6 s, 3000 -> 3 s,
-    # worst case 9 s inside the 10 s turnBudgetMs cap.
     ## curly hands the deadline to CURLOPT_TIMEOUT, whose granularity is
     ## WHOLE SECONDS. This CEILS rather than floors: the design pins
     ## `attempt1Ms: 4500`, and flooring would have run it at 4 s against a
