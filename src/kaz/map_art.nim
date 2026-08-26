@@ -762,8 +762,11 @@ proc renderArenaRgbaPair*(
         elif lx >= breach.xLo and lx <= breach.xHi:
           # Torn ground, dark with old blood, mottled by a hash of the pixel so
           # it reads as ruined rather than painted.
-          var h = 0x9E3779B9'u32 xor uint32(x * 73856093) xor
-            uint32(y * 19349663)
+          ## UNSIGNED throughout: `x * 73856093` overflows the 32-bit `int`
+          ## of the wasm32 replay viewer, which traps on the map bake before
+          ## the first frame is ever drawn. uint32 wraparound is defined.
+          var h = 0x9E3779B9'u32 xor (uint32(x) * 73856093'u32) xor
+            (uint32(y) * 19349663'u32)
           h = h xor (h shr 13)
           stamp(58, 22, 24, 130 + int(h mod 60'u32))
 
@@ -910,8 +913,9 @@ proc loadMapLayers*(gameMap: KazMap, withEndzoneGlow = true):
             px = overTint(px, rgba(96, 100, 110, 210))
           result.mapImage[x, y] = px.rgbx
         elif x >= breach.xLo and x <= breach.xHi:
-          var h2 = 0x9E3779B9'u32 xor uint32(x * 73856093) xor
-            uint32(y * 19349663)
+          ## UNSIGNED throughout: see the supersampled pass above.
+          var h2 = 0x9E3779B9'u32 xor (uint32(x) * 73856093'u32) xor
+            (uint32(y) * 19349663'u32)
           h2 = h2 xor (h2 shr 13)
           result.mapImage[x, y] = overTint(
             result.mapImage[x, y].rgba,

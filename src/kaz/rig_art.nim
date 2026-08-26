@@ -920,8 +920,10 @@ proc zombieRotPixels*(
       # Desaturate two thirds of the way to luma, then pull the result toward a
       # sick olive and darken it. Mottling comes from a hash of the pixel, so
       # it is stable frame to frame instead of crawling.
-      var h = 0x9E3779B9'u32 xor uint32(x * 374761393) xor
-        uint32(y * 668265263)
+      ## UNSIGNED throughout: the signed products overflow the 32-bit `int`
+      ## of the wasm32 replay viewer. uint32 wraparound is defined.
+      var h = 0x9E3779B9'u32 xor (uint32(x) * 374761393'u32) xor
+        (uint32(y) * 668265263'u32)
       h = h xor (h shr 15)
       let
         mottle = int(h mod 34'u32) - 17

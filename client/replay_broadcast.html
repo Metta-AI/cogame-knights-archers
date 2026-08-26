@@ -1500,7 +1500,9 @@ body[data-embed] #board { top: 0; height: 100%; }
     ? '.'
     : location.pathname.replace(/\/clients?\/[^/]*$/, '') + '/client';
   var COG_ART = {}, COG_ART_GUN = {};
-  ['red', 'blue', 'green', 'yellow'].forEach(function (team) {
+  // No yellow: the yellow rig family went with the four-team play this game
+  // does not have, and requesting it only produces 404s in the console.
+  ['red', 'blue', 'green'].forEach(function (team) {
     COG_ART[team] = new Image();
     COG_ART[team].src = COG_BASE + '/soldier_' + team + '_front.png';
     COG_ART_GUN[team] = new Image();
@@ -1604,17 +1606,13 @@ body[data-embed] #board { top: 0; height: 100%; }
         poses: [{ f: 1, w: 16.63, h: 18.25 }, { f: 2, w: 14.92, h: 21.6 },
                 { f: 3, w: 15.83, h: 21.81 }, { f: 5, w: 16.63, h: 20.63 },
                 { f: 6, w: 14.62, h: 22.68 }] },
-      yellow: { ax: 59.93, ay: 76.78, cyc: 5.2,
-        poses: [{ f: 1, w: 16.43, h: 18.57 }, { f: 2, w: 15.52, h: 18.57 },
-                { f: 3, w: 15.62, h: 18.57 }, { f: 5, w: 16.13, h: 18.36 },
-                { f: 6, w: 15.83, h: 23.11 }] },
       red:    { ax: 79.03, ay: 77.43, cyc: 4.1,
         poses: [{ f: 1, w: 18.15, h: 18.79 }, { f: 2, w: 15.93, h: 20.19 },
                 { f: 3, w: 15.52, h: 19.87 }, { f: 5, w: 15.83, h: 20.63 },
                 { f: 6, w: 16.73, h: 21.06 }] }
     };
     var spritesEl = $('lk-sprites');
-    ['green', 'blue', 'yellow', 'red'].forEach(function (bot) {
+    ['green', 'blue', 'red'].forEach(function (bot) {
       var b = LK_BOTS[bot];
       var maxW = 0, maxH = 0;
       b.poses.forEach(function (p) {
