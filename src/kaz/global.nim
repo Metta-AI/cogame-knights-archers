@@ -367,11 +367,19 @@ const
   PaintBombCarryObjectBase = 19360   ## carried markers: one per player.
   ThrowTargetObjectBase = 19400      ## charge rings: one per player.
   BlastObjectBase = 19440            ## blast flashes: one per recent blast.
-  ZombieSpriteBase = 76800     ## the horde: 76800 + frame * SoldierRotations +
+  ZombieSpriteBase = 38700     ## the horde: 38700 + frame * SoldierRotations +
                                ## rotation, two shamble frames x sixteen aim
                                ## steps = 32 sprites for a forty-strong horde.
+                               ## A STATIC pool, so it must sit strictly below
+                               ## DynamicSpriteWireBase (40000) and therefore
+                               ## under the u16 wire ceiling: an id past 65535
+                               ## wraps mod 65536 on emission and lands on
+                               ## another pool's art. The rig pools live above
+                               ## 40000 only because every rig*SpriteId goes
+                               ## through the dense wireSpriteId remap; these
+                               ## do not.
   ZombieObjectBase = 41200     ## one object per live zombie, id-ordered.
-  ArrowSpriteBase = 76900      ## arrows in flight: 76900 + rotation.
+  ArrowSpriteBase = 38740      ## arrows in flight: 38740 + rotation.
   ArrowObjectBase = 41300      ## one object per live arrow, creation-ordered.
   ShoutSpriteBase = 22000      ## speech-bubble sprites: one per live shout,
                                ## keyed by the viewer's shoutSlots table (see
@@ -953,6 +961,8 @@ const
     ("barriers standing", BarrierUpSpriteBase, MaxBarriersPlaced),
     ("fog runs", FogRunSpriteBase, 1000),
     ("shout bubbles", ShoutSpriteBase, ShoutMaxCount),
+    ("zombies", ZombieSpriteBase, ZombieShambleFrames * SoldierRotations),
+    ("arrows", ArrowSpriteBase, ArrowRotations),
     ("damage pops", DamagePopSpriteBase,
       16 * DamagePopBucketCount * DamagePopStages),
     ("kill pops", KillPopSpriteBase, 16 * DamagePopStages),

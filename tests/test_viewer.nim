@@ -7,8 +7,9 @@
 ## beat CSS is asserted to cover exactly the kinds the sim emits.
 
 import
-  std/[md5, os, strutils],
-  kaz/sim
+  std/[json, md5, os, strutils],
+  kaz/[sim, global, broadcast],
+  ./helpers
 
 proc check(condition: bool, what: string) =
   if not condition:
@@ -178,5 +179,61 @@ block noStarterIdentifierSurvives:
     let text = readFile(path)
     check(not text.contains("CTF_") and not text.contains("ctf_"),
       path & " still carries a ctf_/CTF_ identifier")
+
+block theFrameBuildersSurviveAFullBoard:
+  ## The docker smoke crashed on the FIRST tick that had a zombie on it: the
+  ## horde's sprite pool sat above the u16 wire ceiling, which no test touched
+  ## because none of them had ever rendered a frame with a zombie in it. This
+  ## block renders both frame builders against a saturated board — forty
+  ## marching zombies and sixteen arrows in flight — so every sprite id the
+  ## horde can ever emit is packed onto the wire here rather than in CI.
+  var world = newHordeSim(maxTicks = 2304, maxGames = 1)
+  world.gameEventLoggingEnabled = false
+  for i in 0 ..< MaxZombies:
+    if world.aliveZombies >= world.config.spawnCapAlive:
+      break
+    world.spawnOneZombie()
+  ## Spread them over the whole board and give them every heading, so every
+  ## rotation and both shamble frames get baked.
+  for i in 0 ..< world.zombies.len:
+    let spot = world.nearestWalkable(
+      100 + (i * 37) mod (MapWidth - 200),
+      60 + (i * 53) mod (MapHeight - 120))
+    world.zombies[i].ux = spot.x * MotionScale
+    world.zombies[i].uy = spot.y * MotionScale
+    world.zombies[i].lungeTarget = (if i mod 3 == 0: i mod 4 else: -1)
+  check(world.zombies.len >= 20,
+    "the fixture needs a real horde, got " & $world.zombies.len)
+  for i in 0 ..< 16:
+    world.players[2].fireCooldown = 0
+    world.players[2].aimBrads = (i * 16) mod AimBradsTurn
+    world.startHeroAttacks([2])
+  check(world.arrows.len == 16, "sixteen arrows in flight")
+  world.aliveZombies = world.recountAliveZombies()
+
+  ## Both shamble frames.
+  for tick in [0, 8]:
+    world.tickCount = tick
+    var viewer = initGlobalViewerState()
+    var nextViewer: GlobalViewerState
+    let frame = world.buildSpriteProtocolUpdates(viewer, nextViewer)
+    check(frame.len > 0, "the board frame must carry the horde")
+    viewer = nextViewer
+  for seat in 0 ..< world.seatCount():
+    var nextState = initPlayerViewerState()
+    let frame = world.buildSpriteProtocolPlayerUpdates(
+      seat, initPlayerViewerState(), nextState)
+    check(frame.len > 0, "seat " & $seat & "'s frame must carry the horde")
+
+  ## And the chrome frame the appended block reads: every readout it draws has
+  ## to be in the state JSON, or the pressure bar and the plates are blank.
+  let state = parseJson(world.buildStateJson(
+    newJArray(), true, 1, 2304, false, true, -1, -1))
+  for key in ["wave", "waves", "turn", "turns", "heroes", "horde"]:
+    check(state.hasKey(key), "the chrome frame is missing " & key)
+  check(state["heroes"].len == 4, "four hero plates")
+  for key in ["alive", "leaderGatePx", "pressurePct", "spawnGatePx",
+              "closestCallPx", "gateX", "breachX", "teamScore"]:
+    check(state["horde"].hasKey(key), "the horde block is missing " & key)
 
 echo "test_viewer: ok"
