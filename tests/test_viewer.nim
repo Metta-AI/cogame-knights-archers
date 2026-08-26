@@ -95,9 +95,19 @@ block theTransportRulesHold:
   check(page.contains("$('endcard').classList.remove('on');"),
     "every seek must dismiss the endcard")
   ## No overlay may sit inside the transport band: every knights-archers
-  ## addition is positioned in the board region or the TOP band.
-  check(page.contains("top: calc(var(--topband, 0px) - 15 * var(--u));"),
-    "the pressure bar must sit in the TOP band, never in the transport band")
+  ## addition is positioned in the board region or the TOP band. The pressure
+  ## strip is INSIDE the top band as the scorebug's own last grid row, so
+  ## relayout()'s --topband measurement reserves room for it -- offsetting it
+  ## up by 15 units drew it over the second row of plates and the TIME LEFT
+  ## caption (r1 review N15).
+  check(page.contains("#kaz-pressure {\n  grid-column: 1 / -1;"),
+    "the pressure strip must be a scorebug grid row, not an absolute overlay")
+  check(page.contains("(scorebug || chrome).appendChild(wrap);"),
+    "the pressure strip must be appended to #scorebug, so --topband holds it")
+  check(not page.contains("top: calc(var(--topband, 0px) - 15 * var(--u));"),
+    "the pressure strip must never be offset UP into the plates")
+  check(not page.contains("#kaz-pressure {\n  position: absolute;"),
+    "the pressure strip must not be an absolutely-positioned overlay")
 
 block theScrubberBeatsAreLabelledClickableButtons:
   check(page.contains("function kazBeat(s, tick, kind, side, label)"),

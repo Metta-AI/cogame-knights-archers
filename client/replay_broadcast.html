@@ -4006,19 +4006,23 @@ body[data-embed] #board { top: 0; height: 100%; }
 #stage.tiny .plate .lives-label { display: none; }
 
 /* --- the horde pressure bar -------------------------------------------- */
-/* A full-width strip immediately under the scorebug, INSIDE the top band —
-   never in the transport band, which stays clear for the scrubber. */
+/* A full-width strip immediately under the plates and INSIDE the top band --
+   never in the transport band, which stays clear for the scrubber.
+   It is the scorebug's own last grid ROW, spanning all three columns, rather
+   than an absolutely-positioned overlay: --topband IS relayout()'s measurement
+   of #scorebug.offsetHeight, so a strip in the flow makes the band grow to
+   hold it, while `top: calc(var(--topband) - 15 * var(--u))` drew it fifteen
+   units ABOVE the band's own bottom edge -- i.e. straight over the second row
+   of plates and the TIME LEFT caption (r1 review N15, visible in that run's
+   viewer-smoke.png). The block asks the page for one relayout() when it
+   appends the strip, so the band is re-measured on the first frame. */
 #kaz-pressure {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(var(--topband, 0px) - 15 * var(--u));
+  grid-column: 1 / -1;
   height: calc(14 * var(--u));
   display: none;
   align-items: center;
   gap: calc(6 * var(--u));
   padding: 0 calc(10 * var(--u));
-  z-index: 9;
   pointer-events: none;
 }
 #kaz-pressure.on { display: flex; }
@@ -4345,12 +4349,23 @@ button.beat-marker:focus-visible {
     wrap.innerHTML =
       '<div id="kaz-bar"><div id="kaz-fill"></div><div id="kaz-segs"></div></div>' +
       '<span id="kaz-read">—</span>';
-    chrome.appendChild(wrap);
+    // INSIDE the top band: the strip is the scorebug's last grid row, so
+    // relayout()'s `--topband = #scorebug.offsetHeight` reserves room for it
+    // and it can never be drawn over the plates.
+    var scorebug = $('scorebug');
+    (scorebug || chrome).appendChild(wrap);
     var chalk = document.createElement('div');
     chalk.id = 'kaz-chalk';
     chalk.innerHTML = '<span id="kaz-chalk-cap"></span>';
     var stage = $('stage') || chrome;
     stage.appendChild(chalk);
+    // The top band just got taller. relayout() owns --topband/--band/
+    // --hudscale on :root and re-runs on window resize, so one synthetic
+    // resize is all it takes for the board, the endcard and this strip to
+    // agree on the new band -- and it is a no-op for everything else.
+    if (scorebug) {
+      try { window.dispatchEvent(new Event('resize')); } catch (ignore) {}
+    }
   }
 
   function ensureWaveChip() {
