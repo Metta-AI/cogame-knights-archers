@@ -3724,8 +3724,13 @@ proc checkHordeInvariants*(sim: var SimServer) =
   if credited != sim.zombiesKilled:
     raise newException(SimGuardError,
       "kill credit " & $credited & " != zombiesKilled " & $sim.zombiesKilled)
-  if sim.zombiesKilled - (sim.zombiesKilled - sim.waveKillsSoFar) +
-      sim.aliveZombies > sim.zombiesSpawned:
+  ## PER WAVE, both terms: `resetHorde` zeroes `zombiesSpawned` and
+  ## `waveKillsSoFar` at every wave boundary while `zombiesKilled` is the
+  ## episode total, so the episode-cumulative form would trip on wave two. This
+  ## used to be written as `zombiesKilled - (zombiesKilled - waveKillsSoFar)`,
+  ## which is the same number reached through a no-op subtraction (r1 review
+  ## N6) and read as if it were comparing episode totals.
+  if sim.waveKillsSoFar + sim.aliveZombies > sim.zombiesSpawned:
     raise newException(SimGuardError,
       "killed+alive " & $(sim.waveKillsSoFar + sim.aliveZombies) &
       " exceeds spawned " & $sim.zombiesSpawned)
