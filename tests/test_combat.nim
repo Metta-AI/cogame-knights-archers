@@ -2,7 +2,7 @@
 
 import
   std/[json, strutils],
-  kaz/[sim, llm],
+  kaz/[sim, llm, broadcast],
   ./helpers
 
 proc check(condition: bool, what: string) =
@@ -66,6 +66,42 @@ block aSwingDamagesEachVictimAtMostOncePerActivation:
   check(sim.zombies[0].hp == 5 - sim.config.knightDamage,
     "one activation must land exactly once across all its lit ticks, hp=" &
       $sim.zombies[0].hp)
+
+block theKillBeatNamesTheBodyThatFell:
+  ## The match feed says "KNIGHT-alpha cuts down Z-118", and the `kill` beat is
+  ## DERIVED from a per-hero kill-count delta, which carries no id of its own.
+  ## Before `heroLastKill` the viewer printed `e.teamKills` -- the running
+  ## SQUAD TOTAL -- behind a "Z-", so every row named a zombie that never
+  ## existed (r1 review N17).
+  var sim = quietSim()
+  let
+    knight = 0
+    hx = sim.players[knight].x + CollisionW div 2
+    hy = sim.players[knight].y + CollisionH div 2
+  discard sim.placeZombie(4242, hx + 40, hy)
+  sim.faceHero(knight, hx + 100, hy)
+  var tracker = initBroadcastTracker()
+  tracker.resync(sim)
+  sim.startHeroAttacks([knight])
+  sim.resolveSwings()
+  check(not sim.zombies[0].alive, "the fixture zombie must die")
+  check(sim.heroLastKill[knight] == 4242,
+    "the killing hero must remember WHICH body fell, got " &
+      $sim.heroLastKill[knight])
+  var events = newJArray()
+  sim.stepEvents(tracker, events)
+  var kills = 0
+  for event in events:
+    if event["k"].getStr() != "kill":
+      continue
+    inc kills
+    check(event.hasKey("zombie"), "a kill beat must name the zombie")
+    check(event["zombie"].getInt() == 4242,
+      "the kill beat must carry the dead zombie's id, got " &
+        $event["zombie"].getInt())
+    check(event["byAlias"].getStr() == sim.cogAlias(knight),
+      "the kill beat must name the killer by ALIAS")
+  check(kills == 1, "exactly one kill beat, got " & $kills)
 
 block theKnightCooldownIsExact:
   var sim = quietSim()

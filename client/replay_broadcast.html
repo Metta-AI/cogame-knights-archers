@@ -4447,9 +4447,14 @@ button.beat-marker:focus-visible {
         kazBanner('WAVE ' + e.wave + ' \u2014 HOLD THE GATE', 'amber');
         return true;
       case 'kill':
+        // e.zombie is the id of the body that just fell. It used to print
+        // e.teamKills -- the running SQUAD TOTAL -- behind a "Z-", so every
+        // row named a zombie that never existed and the number climbed by one
+        // every kill (r1 review N17).
         feedRow(
-          '<b>' + kazEsc(heroName(s, e.byAlias)) + '</b> cuts down Z-' + 
-          (e.teamKills || 0), 'kill');
+          '<b>' + kazEsc(heroName(s, e.byAlias)) + '</b> cuts down Z-' +
+          (e.zombie >= 0 ? e.zombie : '?') + ' \u00B7 ' +
+          (e.teamKills || 0) + ' down', 'kill');
         return true;
       case 'shot':
       case 'swing':

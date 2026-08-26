@@ -2219,6 +2219,13 @@ type
     waveEndRuleLog*: seq[string]
     waveKillsLog*: seq[int]
     waveClosestLog*: seq[int]
+    heroLastKill*: seq[int]    ## per COG: the id of the zombie it last killed,
+                               ## -1 = none yet. NOT hashed and NOT recorded:
+                               ## `stepEvents` derives the `kill` beat from a
+                               ## per-hero kill-count delta and has no other
+                               ## way to name the body (r1 review N17). New
+                               ## field, at the END: SimServer rides the
+                               ## flatty replay keyframe POSITIONALLY.
 
 
 # Team endzone display colors (shared by the map bake and the paint FX).

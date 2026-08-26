@@ -319,6 +319,7 @@ proc resetHeroCounters*(sim: var SimServer) =
   while sim.heroHits.len < sim.players.len: sim.heroHits.add(0)
   while sim.heroShots.len < sim.players.len: sim.heroShots.add(0)
   while sim.heroDeathTick.len < sim.players.len: sim.heroDeathTick.add(-1)
+  while sim.heroLastKill.len < sim.players.len: sim.heroLastKill.add(-1)
 
 
 proc squadCogs*(sim: SimServer, seat: int): seq[int] =
@@ -3488,6 +3489,10 @@ proc creditZombieKill(sim: var SimServer, cogIndex, zombieSlot: int) =
   if cogIndex >= 0 and cogIndex < sim.heroKills.len:
     inc sim.heroKills[cogIndex]
     inc sim.players[cogIndex].kills
+  if cogIndex >= 0 and cogIndex < sim.heroLastKill.len:
+    ## WHICH body, so the match feed can name it. The `kill` beat is derived
+    ## from this hero's kill-count delta, which carries no id of its own.
+    sim.heroLastKill[cogIndex] = sim.zombies[zombieSlot].id
   let (zx, zy) = sim.zombies[zombieSlot].zombiePx()
   sim.splatters.add SplatterFx(
     x: zx, y: zy, tick: sim.tickCount,
@@ -4206,6 +4211,7 @@ proc initSimServer*(config: GameConfig): SimServer =
   result.heroHits = @[]
   result.heroShots = @[]
   result.heroDeathTick = @[]
+  result.heroLastKill = @[]
   result.waveTicksLog = @[]
   result.waveEndRuleLog = @[]
   result.waveKillsLog = @[]
