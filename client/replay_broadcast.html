@@ -4064,6 +4064,31 @@ body[data-embed] #board { top: 0; height: 100%; }
   flex: none;
 }
 
+/* --- the match feed's commander lines ----------------------------------- */
+/* The inherited .feed-row is sized to its content (`max-width: none;
+   white-space: nowrap`) because every string the STARTER put in it is a
+   pre-bounded 10-char name. A knights-archers commander line is a SENTENCE --
+   an LLM-authored `note` of up to 160 runes -- and at full cap it measured
+   1829 px of text in a 365 px column, so the row grew out of BOTH sides of the
+   frame at every canvas size (replay-viewer/text_fixture.html, r1 review B2).
+   Item 15 of the acceptance checklist says widen the band rather than shorten
+   the text: the game's own rows wrap inside the feed column and the feed grows
+   upward into the four-row reserve it already keeps. */
+#killfeed .feed-row.say,
+#killfeed .feed-row.dim,
+#killfeed .feed-row.alert,
+#killfeed .feed-row.kill {
+  display: block;
+  /* 100% of the feed COLUMN, border-box, so the row's own padding is inside
+     the column rather than 7 units past its right edge. */
+  box-sizing: border-box;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+  text-align: right;
+}
+
 /* --- the closest-call chalk line, drawn on the board -------------------- */
 #kaz-chalk {
   position: absolute;

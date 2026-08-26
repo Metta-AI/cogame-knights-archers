@@ -210,6 +210,20 @@ block theHordeReadoutsArePresent:
   check(page.contains("IS THROUGH THE GATE"), "the breach banner")
   check(page.contains("THE LINE HOLDS"), "the wave-cleared banner")
 
+block theCommanderLinesWrapInsideTheFeedColumn:
+  ## A `note` is a SENTENCE of up to 160 runes, and the inherited .feed-row is
+  ## sized to its content because every string the starter put in it was a
+  ## pre-bounded 10-char name. At full cap the row grew out of both sides of
+  ## the frame at every canvas size (found by replay-viewer/text_fixture.html).
+  ## Item 15: widen the band, never shorten the text.
+  check(page.contains("#killfeed .feed-row.say,"),
+    "the game's own feed rows must have their own wrapping rule")
+  check(page.contains("overflow-wrap: anywhere;") and
+        page.contains("white-space: normal;"),
+    "a full-cap note must wrap inside the feed column")
+  check(not page.contains("text-overflow: ellipsis;\n  white-space: nowrap"),
+    "a sentence must never be ellipsised: widen the band instead")
+
 block theWorstCaseTextFixtureIsShippedAndDriven:
   ## Item 15's last bullet: a repo whose viewer draws LLM-authored text ships a
   ## worst-case renderer fixture driven by `viewer_smoke.mjs
