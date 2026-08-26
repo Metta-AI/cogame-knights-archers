@@ -1,8 +1,8 @@
 ## The two weapons: the knight's wedge and the archer's arrow.
 
 import
-  std/json,
-  kaz/sim,
+  std/[json, strutils],
+  kaz/[sim, llm],
   ./helpers
 
 proc check(condition: bool, what: string) =
@@ -80,6 +80,22 @@ block theKnightCooldownIsExact:
     inc ticks
   check(ticks == sim.config.knightCooldown + sim.config.swingTicks,
     "cooldown ran " & $ticks & " ticks")
+  ## The number every DOC quotes: the swing PERIOD in seconds, not the bare
+  ## cooldown. docs/RULES.md, the manifest rules page and llm.nim's system
+  ## prompt all say 0.9 s; a retune that moves either constant has to move
+  ## them too (r1 review N1: the prompt told the model 0.75 s, which is the
+  ## cooldown alone, and the sim gives 22 ticks).
+  check(sim.config.knightCooldown + sim.config.swingTicks == 22,
+    "the knight's swing period must be 22 ticks (0.92 s), got " &
+      $(sim.config.knightCooldown + sim.config.swingTicks))
+  let prompt = SystemPrompt
+  check(prompt.contains("once every 0.9 seconds"),
+    "the system prompt must quote the knight's real swing period")
+  check(not prompt.contains("once every 0.75 seconds"),
+    "the system prompt must not quote the bare cooldown as the swing rate")
+  let rules = readFile("docs/RULES.md")
+  check(not rules.contains("| cooldown | 0.75 s"),
+    "docs/RULES.md must not quote 0.75 s as the knight's swing period")
 
 block anArrowFliesTwelvePixelsATickAndDiesAtItsRange:
   var sim = quietSim()

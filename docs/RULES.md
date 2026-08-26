@@ -26,7 +26,7 @@ geometry of the game is legible with the HUD off.
 | speed | 66 px/s | 56 px/s (85 %) |
 | reach | 52 px, ±45° wedge, line of sight required | 528 px, straight |
 | damage | 2 — one blow kills | 1 — two arrows kill |
-| cooldown | 0.75 s | 0.5 s |
+| swing / shot period | 0.92 s (18-tick cooldown after the 4-tick swing) | 0.5 s |
 
 There is **no friendly fire**: arrows pass through heroes.
 

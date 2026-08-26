@@ -853,7 +853,11 @@ const
   DefaultKnightReach* = 52      ## px reach of the mace wedge.
   DefaultKnightArcBrads* = 32   ## wedge half-angle in brads (32 = +-45 deg).
   DefaultKnightDamage* = 2      ## one blow kills a 2 hp zombie.
-  DefaultKnightCooldown* = 18   ## ticks between swings (0.75 s).
+  DefaultKnightCooldown* = 18   ## ticks AFTER a swing's four lit ticks, so the
+                                ## swing PERIOD is 18 + swingTicks = 22 ticks
+                                ## (0.92 s) -- see sim.resolveSwings and
+                                ## tests/test_combat.nim. Every doc that quotes
+                                ## a swing rate quotes the period, not this.
   DefaultSwingTicks* = 4        ## ticks a swing stays lit.
   DefaultArcherSpeedPct* = 85   ## an archer walks at 85% of MaxSpeed.
   DefaultArrowSpeed* = 3072     ## motion units/tick = 12 px/tick = 288 px/s.

@@ -206,7 +206,7 @@ arena 1235 by 659 pixels. The dead walk in at the EAST edge (x=1178) and march
 WEST toward your gate (x=40). Two knights and two archers hold the line
 together. You are <ROLE>.
 KNIGHT: you swing a mace. It reaches 52 pixels in a 90-degree wedge in front of
-you and kills a zombie in ONE blow, once every 0.75 seconds. You are the fastest
+you and kills a zombie in ONE blow, once every 0.9 seconds. You are the fastest
 thing on the field at 66 pixels per second.
 ARCHER: you loose arrows. They fly 528 pixels in a straight line at 288 pixels
 per second and take TWO hits to kill a zombie, one shot every 0.5 seconds. You
