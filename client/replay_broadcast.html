@@ -4096,8 +4096,14 @@ body[data-embed] #board { top: 0; height: 100%; }
 /* --- the closest-call chalk line, drawn on the board -------------------- */
 #kaz-chalk {
   position: absolute;
-  top: 0;
-  bottom: 0;
+  /* THE BOARD REGION, not the whole stage: #stage spans the scorebug band, the
+     board and the transport band, so `top: 0` put the caption (which sits at
+     top: 8 * var(--u)) inside the opaque scorebug band, behind #chrome -- the
+     dashed line was visible on the board and the CLOSEST CALL caption appeared
+     nowhere at all (r1 review N16). These are the same two variables #board
+     itself is sized from, so the line and its label ride the board exactly. */
+  top: var(--topband, 0px);
+  bottom: var(--band, 0px);
   width: calc(2 * var(--u));
   background: repeating-linear-gradient(
     to bottom,

@@ -216,6 +216,13 @@ block theHordeReadoutsArePresent:
     check(page.contains(id), "the readout #" & id & " is missing")
   check(page.contains("DEAD WALKING"), "the pressure bar's numeral readout")
   check(page.contains("CLOSEST CALL"), "the closest-call chalk line label")
+  ## The chalk line and its caption are drawn on the BOARD, beside each other.
+  ## #kaz-chalk is a child of #stage, which spans both bands, so a `top: 0`
+  ## element puts its label inside the opaque scorebug band where #chrome
+  ## (z-index 10 against the chalk's 6) draws over it -- the caption appeared
+  ## nowhere in the reviewed run's screenshot (r1 review N16).
+  check(page.contains("top: var(--topband, 0px);\n  bottom: var(--band, 0px);"),
+    "the chalk line must span the BOARD region, not the whole stage")
   check(page.contains("IS CHARGING"), "the lunge feed row")
   check(page.contains("IS THROUGH THE GATE"), "the breach banner")
   check(page.contains("THE LINE HOLDS"), "the wave-cleared banner")
