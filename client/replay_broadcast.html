@@ -3946,8 +3946,16 @@ body[data-embed] #board { top: 0; height: 100%; }
      not hidden here: #viewpanel (the zoom bar + the minimap) is gone because
      the board is the fixed 1235 x 659 arena and relayout() always fits it
      whole; so are the heart/flag scorebug fields, the .ec-heart glyphs, the
-     .steal/.return/.capture beat rules, the perk and handicap badges and the
-     hill ring.
+     .steal/.return/.capture beat CSS and the hill ring.
+
+     What is NOT removed, and this comment used to claim was: the perk and
+     handicap badges (.plate .perk-icos, .plate .hcap, the `hcap` span and the
+     setHandicap call). They live in the CLASSIC, non-KAZ_MODE branch of the
+     scorebug, which a classic coworld-ctf replay still renders; the same is
+     true of the `case 'steal'` / `case 'return'` arms of the classic event
+     switch, which are unreachable here only because broadcast.nim never emits
+     those kinds. KAZ_MODE builds its own plates and never touches either
+     (r1 review N19).
 
      Nothing here touches the transport band. relayout() still owns --hudscale,
      --topband and --band on :root; the endcard still stops at
