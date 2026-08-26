@@ -225,11 +225,11 @@ proc seatViewJson*(
       "spawned": sim.zombiesSpawned,
       "killed": sim.waveKillsSoFar,
       "closest_call_px": sim.minGateDist,
-      ## PER-MILLE of a zombie per TICK is the sim's internal unit
-      ## (`spawnRatePerMille`); a seat is told zombies per SECOND, which is
-      ## what the docs and the design note quote (0.29/s at the start of a
-      ## wave rising to 1.20/s). Multiplying by TargetFps alone reported 288
-      ## (r1 review N10) -- a number no zombie count could ever be.
+      # PER-MILLE of a zombie per TICK is the sim's internal unit
+      # (`spawnRatePerMille`); a seat is told zombies per SECOND, which is what
+      # the docs and the design note quote (0.29/s at the start of a wave
+      # rising to 1.20/s). Multiplying by TargetFps alone reported 288
+      # (r1 review N10) -- a number no zombie count could ever be.
       "spawn_rate_per_s": (
         sim.spawnRatePerMille(sim.gameTicksElapsed()) * TargetFps).float / 1000.0
     },

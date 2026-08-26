@@ -232,8 +232,8 @@ proc stepEvents*(
       events.add(%*{
         "t": tick, "k": "kill", "by": sim.slotOf(i),
         "byAlias": sim.cogAlias(i), "role": sim.roleOf(i),
-        ## WHICH zombie died, so the feed can say "cuts down Z-118" instead of
-        ## printing the running team total as if it were an id (r1 review N17).
+        # WHICH zombie died, so the feed can say "cuts down Z-118" instead of
+        # printing the running team total as if it were an id (r1 review N17).
         "zombie": (if i < sim.heroLastKill.len: sim.heroLastKill[i] else: -1),
         "kills": sim.heroKills[i], "teamKills": sim.zombiesKilled,
         "alive": sim.aliveZombies
