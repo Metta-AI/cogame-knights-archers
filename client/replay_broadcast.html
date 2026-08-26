@@ -2036,7 +2036,13 @@ body[data-embed] #board { top: 0; height: 100%; }
       // plate element, the sides, the clock column and the .tiny density
       // system are the inherited ones; only the CONTENTS change, and the
       // appended block owns them.
-      if (window.KnightsArchersChrome) window.KnightsArchersChrome.buildPlates(sides);
+      // KAZ_CTX is threaded through EVERY entry point, not just frame():
+      // this appended block's IIFE runs AFTER the main one, so the
+      // `install(KAZ_CTX)` call at the end of the main IIFE is a no-op and
+      // CTX is null until something hands it over. ensureScorebug and
+      // renderScorebug both fire BEFORE the frame hook on the first frame.
+      if (window.KnightsArchersChrome)
+        window.KnightsArchersChrome.buildPlates(sides, KAZ_CTX);
       return;
     }
     teams.forEach(function (team, i) {
@@ -2067,7 +2073,7 @@ body[data-embed] #board { top: 0; height: 100%; }
       // fills them from `s.heroes` — real policy name, role glyph, kills in
       // the big numeral, swings or shots in the small one. Nothing here has a
       // per-team plate to update.
-      if (window.KnightsArchersChrome) window.KnightsArchersChrome.plates(s);
+      if (window.KnightsArchersChrome) window.KnightsArchersChrome.plates(s, KAZ_CTX);
       return;
     }
     var tr = s.teams || {};
@@ -3574,7 +3580,8 @@ body[data-embed] #board { top: 0; height: 100%; }
       // KNIGHTS-ARCHERS: the verdict is the squad's, and the appended block
       // writes it — the headline, the four-hero table, the team line and the
       // per-wave closest calls.
-      if (window.KnightsArchersChrome) window.KnightsArchersChrome.endcard(s, head, how);
+      if (window.KnightsArchersChrome)
+        window.KnightsArchersChrome.endcard(s, head, how, KAZ_CTX);
       return;
     }
 
@@ -4169,6 +4176,27 @@ button.beat-marker:focus-visible {
 
   function $(id) { return document.getElementById(id); }
 
+  // Degrade, never throw: a null CTX used to take the whole shell down with
+  // `Cannot read properties of null (reading 'shortName')`, which the load
+  // test correctly reports as data-replay-error. These wrappers mean a
+  // missing context costs a plainer readout, not a dead viewer.
+  function kazEsc(text) {
+    if (CTX && CTX.esc) return CTX.esc(text);
+    return String(text == null ? '' : text)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function kazShortName(name) {
+    return CTX && CTX.shortName ? CTX.shortName(name) : String(name || '');
+  }
+  function kazClock(seconds) {
+    if (CTX && CTX.fmt) return CTX.fmt(seconds);
+    var s = Math.max(0, Math.floor(seconds));
+    return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2);
+  }
+  function kazSeek(tick) { if (CTX && CTX.send) CTX.send('s:' + tick); }
+  function kazFeed(html, cls) { if (CTX && CTX.pushFeed) CTX.pushFeed(html, cls); }
+  function kazBanner(text, cls) { if (CTX && CTX.banner) CTX.banner(text, cls); }
+
   // ---- the scrubber beats: labelled, clickable buttons -------------------
   function scrubGeometry(s) {
     var st = (s && s.st) || 0;
@@ -4194,7 +4222,7 @@ button.beat-marker:focus-visible {
     el.addEventListener('click', function (ev) {
       ev.preventDefault();
       ev.stopPropagation();
-      CTX.send('s:' + tick);
+      kazSeek(tick);
     });
     scrub.appendChild(el);
   }
@@ -4210,7 +4238,8 @@ button.beat-marker:focus-visible {
   // ---- the four hero plates ----------------------------------------------
   function roleGlyph(role) { return role === 'archer' ? '\u27B9' : '\u2694'; }
 
-  function buildPlates(sides) {
+  function buildPlates(sides, ctx) {
+    CTX = ctx || CTX;
     // Two heroes each side of the clock, in seat order, so the two knights
     // flank it on the left and the two archers on the right.
     for (var seat = 0; seat < 4; seat++) {
@@ -4237,7 +4266,8 @@ button.beat-marker:focus-visible {
     }
   }
 
-  function plates(s) {
+  function plates(s, ctx) {
+    CTX = ctx || CTX;
     var heroes = s.heroes || [];
     for (var seat = 0; seat < 4; seat++) {
       var h = heroes[seat];
@@ -4255,7 +4285,7 @@ button.beat-marker:focus-visible {
       // SPECTATOR SIDE: the plate headlines the REAL policy name. The
       // anonymous alias is what the game itself uses, and it rides along in
       // the tooltip so a viewer can tie a plate to a body on the board.
-      nameEl.textContent = CTX.shortName(h.name || h.alias || '');
+      nameEl.textContent = kazShortName(h.name || h.alias || '');
       nameEl.title = (h.name || '') + ' — ' + (h.alias || '');
       killsEl.textContent = String(h.kills || 0);
       shotsEl.textContent = h.role === 'archer'
@@ -4263,7 +4293,7 @@ button.beat-marker:focus-visible {
         : (h.shots || 0) + ' swings';
       plate.classList.toggle('kaz-down', h.alive === false);
       if (h.alive === false && h.fellAt >= 0) {
-        shotsEl.textContent = 'fell at ' + CTX.fmt(Math.floor(h.fellAt / 24));
+        shotsEl.textContent = 'fell at ' + kazClock(Math.floor(h.fellAt / 24));
       }
     }
   }
@@ -4343,7 +4373,7 @@ button.beat-marker:focus-visible {
 
   // ---- the match feed: plain language, never internal notation ------------
   function feedRow(html, cls) {
-    CTX.pushFeed(html, cls);
+    kazFeed(html, cls);
   }
 
   function heroName(s, alias) { return alias || 'a hero'; }
@@ -4356,11 +4386,11 @@ button.beat-marker:focus-visible {
       case 'wavestart':
         kazBeat(s, e.t, 'wavestart', '',
           'Wave ' + e.wave + ' of ' + e.waves + ' begins — click to jump here');
-        CTX.banner('WAVE ' + e.wave + ' \u2014 HOLD THE GATE', 'amber');
+        kazBanner('WAVE ' + e.wave + ' \u2014 HOLD THE GATE', 'amber');
         return true;
       case 'kill':
         feedRow(
-          '<b>' + CTX.esc(heroName(s, e.byAlias)) + '</b> cuts down Z-' + 
+          '<b>' + kazEsc(heroName(s, e.byAlias)) + '</b> cuts down Z-' + 
           (e.teamKills || 0), 'kill');
         return true;
       case 'shot':
@@ -4368,13 +4398,13 @@ button.beat-marker:focus-visible {
         return true;                       // too frequent for a feed row
       case 'spawn':
         if ((e.count || 0) >= 3) {
-          feedRow(CTX.esc(String(e.count)) + ' more of the dead walk in \u2014 ' +
+          feedRow(kazEsc(String(e.count)) + ' more of the dead walk in \u2014 ' +
             (e.alive || 0) + ' on the board', 'dim');
         }
         return true;
       case 'lunge':
         feedRow('<b>Z-' + e.zombie + ' IS CHARGING ' +
-          CTX.esc(heroName(s, e.at)) + '</b>', 'alert');
+          kazEsc(heroName(s, e.at)) + '</b>', 'alert');
         return true;
       case 'closecall':
         kazBeat(s, e.t, 'closecall', '',
@@ -4384,23 +4414,23 @@ button.beat-marker:focus-visible {
         return true;
       case 'casualty':
         kazBeat(s, e.t, 'casualty', '',
-          CTX.esc(e.alias || 'a hero') + ' is caught — click to jump here');
-        CTX.banner(String(e.alias || 'A HERO').toUpperCase() + ' IS CAUGHT',
+          kazEsc(e.alias || 'a hero') + ' is caught — click to jump here');
+        kazBanner(String(e.alias || 'A HERO').toUpperCase() + ' IS CAUGHT',
           'red');
-        feedRow('<b>' + CTX.esc(e.alias || 'a hero') +
+        feedRow('<b>' + kazEsc(e.alias || 'a hero') +
           ' is caught by the dead \u2014 the wave ends</b>', 'alert');
         return true;
       case 'breach':
         kazBeat(s, e.t, 'breach', '',
           'Z-' + e.zombie + ' is through the gate — click to jump here');
-        CTX.banner('Z-' + e.zombie + ' IS THROUGH THE GATE', 'red');
+        kazBanner('Z-' + e.zombie + ' IS THROUGH THE GATE', 'red');
         feedRow('<b>Z-' + e.zombie + ' IS THROUGH THE GATE</b>', 'alert');
         return true;
       case 'waveover':
         kazBeat(s, e.t, 'waveover', '',
           'Wave ' + e.wave + ' ends ' + e.endRule + ' — click to jump here');
         if (e.endRule === 'full_time') {
-          CTX.banner('THE LINE HOLDS \u2014 WAVE ' + e.wave + ' CLEARED, ' +
+          kazBanner('THE LINE HOLDS \u2014 WAVE ' + e.wave + ' CLEARED, ' +
             (e.kills || 0) + ' KILLS', 'amber');
         }
         feedRow('<b>Wave ' + e.wave + ' \u2014 ' +
@@ -4422,13 +4452,14 @@ button.beat-marker:focus-visible {
       seenDirective[key] = true;
       if (!d.note) continue;
       var who = d.alias || ('seat ' + d.seat);
-      feedRow('<i>' + CTX.esc(who) + ':</i> ' + CTX.esc(d.note),
+      feedRow('<i>' + kazEsc(who) + ':</i> ' + kazEsc(d.note),
         d.source === 'llm' ? 'say' : 'dim');
     }
   }
 
   // ---- the endcard --------------------------------------------------------
-  function endcard(s, head, how) {
+  function endcard(s, head, how, ctx) {
+    CTX = ctx || CTX;
     var o = s.over || {};
     var heroes = s.heroes || [];
     var cleared = o.wavesCleared || 0;
@@ -4462,7 +4493,7 @@ button.beat-marker:focus-visible {
         var h = heroes[i];
         html += '<div class="ec-row' + (h.alive === false ? '' : ' mvp') + '">' +
           '<span class="pcell"><span class="pname">' +
-          CTX.esc(h.alias || '') + '</span></span>' +
+          kazEsc(h.alias || '') + '</span></span>' +
           '<span class="n">' + (h.kills || 0) + '</span>' +
           '<span class="n">' + (h.hits || 0) + '</span>' +
           '<span class="n clstr">' + (h.shots || 0) + '</span>' +

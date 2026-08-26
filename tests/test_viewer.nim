@@ -120,6 +120,38 @@ block theScrubberBeatsAreLabelledClickableButtons:
     check(not page.contains(".beat-marker." & kind & " {"),
       ".beat-marker." & kind & " is styled but never emitted")
 
+block everyEntryPointIsHandedTheContext:
+  ## The appended block's IIFE runs AFTER the main one, so the main IIFE's
+  ## `install(KAZ_CTX)` call is a no-op and the block's CTX is null until
+  ## something hands it over. `ensureScorebug` and `renderScorebug` both fire
+  ## BEFORE the frame hook on the very first frame, so an entry point called
+  ## without the context takes the whole shell down with
+  ## "Cannot read properties of null" — which is exactly what the browser load
+  ## test reported.
+  for call in ["KnightsArchersChrome.frame(s, KAZ_CTX, jumped)",
+               "KnightsArchersChrome.buildPlates(sides, KAZ_CTX)",
+               "KnightsArchersChrome.plates(s, KAZ_CTX)",
+               "KnightsArchersChrome.endcard(s, head, how, KAZ_CTX)"]:
+    check(page.contains(call), "the entry point " & call & " must be " &
+      "called WITH the context, or the block runs on a null CTX")
+  check(page.contains("KnightsArchersChrome.event(e, s, KAZ_CTX)"),
+    "the event hook must be handed the context too")
+  ## And every use of the context inside the block goes through a guarded
+  ## wrapper, so a missing context costs a plainer readout, never a dead
+  ## viewer.
+  let banner2 = page.find("KNIGHTS-ARCHERS additions to the inherited")
+  let body = page[banner2 .. ^1]
+  for direct in ["CTX.esc(", "CTX.shortName(", "CTX.fmt(", "CTX.pushFeed(",
+                 "CTX.banner(", "CTX.send("]:
+    var uses = 0
+    var at = body.find(direct)
+    while at >= 0:
+      inc uses
+      at = body.find(direct, at + 1)
+    check(uses <= 1,
+      direct & " is used " & $uses & " times: it must be reached only " &
+        "through this block's own guarded wrapper")
+
 block theGameBlockCannotShadowTheChromeAliases:
   ## The tandem 2026-08-23 trap, generalised: the appended block must not
   ## declare ANY top-level name the chrome alias block aliases.
