@@ -52,6 +52,47 @@ block oneBlowKillsAndOnlyInsideTheWedge:
   check(sim.zombies[2].alive, "a zombie past 52 px must survive")
   check(sim.heroKills[knight] == 1, "the swinging seat must be credited")
 
+block theWedgeIsClippedAlongTheAimAxisNotByRadius:
+  ## `inWedge` compares the FORWARD projection (v.u) against
+  ## `reach * AimUnitScale`, so the 52 px bound is measured along the aim axis
+  ## and a zombie off to the side connects out to reach/cos(angle) of true
+  ## distance -- ~73 px at 45 degrees. That is the starter's arc-cone shape,
+  ## and it is what the tuned baseline was tuned against; the note reads like a
+  ## 52 px Euclidean sector (r1 review N5). Pinned here so a future "fix" to
+  ## either reading is a decision rather than an accident.
+  var sim = quietSim()
+  let
+    knight = 0
+    hx = sim.players[knight].x + CollisionW div 2
+    hy = sim.players[knight].y + CollisionH div 2
+    reach = sim.config.knightReach
+  sim.faceHero(knight, hx + 100, hy)                    ## due east
+  let aim = sim.players[knight].aimBrads
+  ## Dead ahead: inside at the reach, outside one pixel past it.
+  check(inWedge(hx, hy, aim, reach, sim.config.knightArcBrads,
+                hx + reach, hy),
+    "a zombie dead ahead at exactly the reach must be inside the wedge")
+  check(not inWedge(hx, hy, aim, reach, sim.config.knightArcBrads,
+                    hx + reach + 2, hy),
+    "a zombie past the reach must be outside the wedge")
+  ## 45 degrees off the axis, at 68 px of TRUE distance (48, 48): its forward
+  ## projection is ~48 px, so it is inside even though 68 > 52.
+  check(inWedge(hx, hy, aim, reach, sim.config.knightArcBrads,
+                hx + 48, hy + 48),
+    "the wedge is clipped along the AIM AXIS: a 45-degree target at 68 px " &
+      "of true distance is inside, because its forward projection is 48 px")
+  ## And the angular half-width still bounds it: 60 degrees off is outside at
+  ## any distance.
+  check(not inWedge(hx, hy, aim, reach, sim.config.knightArcBrads,
+                    hx + 20, hy + 35),
+    "a target outside the +-45 degree half-angle must be outside the wedge")
+  ## The sim agrees with the geometry: the same 45-degree body dies to one blow.
+  discard sim.placeZombie(9, hx + 48, hy + 48)
+  sim.startHeroAttacks([knight])
+  sim.resolveSwings()
+  check(not sim.zombies[0].alive,
+    "the sim must kill the 45-degree body the wedge says it reaches")
+
 block aSwingDamagesEachVictimAtMostOncePerActivation:
   var sim = quietSim(%*{"zombieHp": 5})
   let
