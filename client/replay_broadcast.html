@@ -4194,7 +4194,19 @@ button.beat-marker:focus-visible {
     return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2);
   }
   function kazSeek(tick) { if (CTX && CTX.send) CTX.send('s:' + tick); }
-  function kazFeed(html, cls) { if (CTX && CTX.pushFeed) CTX.pushFeed(html, cls); }
+  // The inherited pushFeed takes a NODE, not an HTML string: handing it a
+  // string threw "Failed to execute 'insertBefore' on 'Node'" on the first
+  // feed row, which latched static_replay.js into `failed` and FROZE the
+  // replay one tick in. The load test still passed (a frame was on the
+  // canvas) and the scrub readouts still passed (seeking skips the killing
+  // frame) -- only --soak sees it (cogball 0.1.4, the same shape).
+  function kazFeed(html, cls) {
+    if (!CTX || !CTX.pushFeed) return;
+    var row = document.createElement('div');
+    row.className = 'feed-row' + (cls ? ' ' + cls : '');
+    row.innerHTML = html;
+    CTX.pushFeed(row);
+  }
   function kazBanner(text, cls) { if (CTX && CTX.banner) CTX.banner(text, cls); }
 
   // ---- the scrubber beats: labelled, clickable buttons -------------------

@@ -152,6 +152,21 @@ block everyEntryPointIsHandedTheContext:
       direct & " is used " & $uses & " times: it must be reached only " &
         "through this block's own guarded wrapper")
 
+block theFeedIsHandedANodeNotAString:
+  ## The inherited `pushFeed` takes a NODE. Handing it an HTML string threw
+  ## "Failed to execute 'insertBefore' on 'Node'" on the first feed row, which
+  ## latched static_replay.js into `failed` and FROZE the replay one tick in —
+  ## with the load signal green and the scrub readouts green, because seeking
+  ## skips the killing frame. Only --soak saw it.
+  let at = page.find("KNIGHTS-ARCHERS additions to the inherited")
+  let body2 = page[at .. ^1]
+  check(body2.contains("row.className = 'feed-row'"),
+    "kazFeed must build a .feed-row element")
+  check(body2.contains("CTX.pushFeed(row)"),
+    "kazFeed must hand pushFeed a NODE, never an HTML string")
+  check(not body2.contains("CTX.pushFeed(html"),
+    "pushFeed must never be handed a string")
+
 block theGameBlockCannotShadowTheChromeAliases:
   ## The tandem 2026-08-23 trap, generalised: the appended block must not
   ## declare ANY top-level name the chrome alias block aliases.
