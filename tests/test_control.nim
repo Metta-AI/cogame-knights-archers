@@ -153,5 +153,17 @@ block phalanxOutKillsStand:
   check(runA.teamKills > runB.teamKills,
     "phalanx (" & $runA.teamKills & ") must out-kill stand (" &
       $runB.teamKills & ")")
+  ## PER WAVE, not only on the episode total (design.md:723,1343-1344 --
+  ## "beats stand on both waves at the pinned seed"). An episode total can hide
+  ## a wave that phalanx lost, which is exactly the regression the head-to-head
+  ## exists to catch (r1 review N24).
+  echo "per-wave kills: phalanx=", a.waveKillsLog, " stand=", b.waveKillsLog
+  check(a.waveKillsLog.len == 2 and b.waveKillsLog.len == 2,
+    "both runs must have archived two waves")
+  for wave in 0 ..< 2:
+    check(a.waveKillsLog[wave] > b.waveKillsLog[wave],
+      "wave " & $(wave + 1) & ": phalanx banked " & $a.waveKillsLog[wave] &
+        " and stand banked " & $b.waveKillsLog[wave] &
+        " -- phalanx must beat stand on BOTH waves at the pinned seed")
 
 echo "test_control: ok"
