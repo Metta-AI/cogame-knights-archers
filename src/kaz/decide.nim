@@ -47,6 +47,15 @@ type
     batchStarted*: bool
     llmOff*: bool              ## the budget guard fired; scripted from here on
     records*: seq[string]      ## chat records queued for the replay writer
+    ## The counters as they stood when the PREVIOUS turn was issued. The seat
+    ## view's `last_turn` block is the difference, which is the one thing a
+    ## commander needs to judge whether its last order worked: a running total
+    ## says nothing about the four seconds just spent.
+    markKills*: seq[int]
+    markHits*: seq[int]
+    markShots*: seq[int]
+    markTeamKills*: int
+    markSpawned*: int
 
 proc initDecisionEngine*(sim: SimServer): DecisionEngine =
   result.client = newLlmClient(sim.config)
@@ -67,6 +76,41 @@ proc policyKind*(engine: DecisionEngine, seat: int): string =
 # ---------------------------------------------------------------------------
 #  The per-seat view
 # ---------------------------------------------------------------------------
+
+proc lastTurnJson(
+  engine: DecisionEngine, sim: SimServer, cogIndex: int
+): JsonNode =
+  ## What happened during the turn just finished, from the counters this engine
+  ## marked when that turn was issued. Every field is a DELTA and never
+  ## negative: `zombiesSpawned` is per wave, so a wave boundary would otherwise
+  ## report a negative gain.
+  let
+    kills = (if cogIndex < sim.heroKills.len: sim.heroKills[cogIndex] else: 0)
+    hits = (if cogIndex < sim.heroHits.len: sim.heroHits[cogIndex] else: 0)
+    shots = (if cogIndex < sim.heroShots.len: sim.heroShots[cogIndex] else: 0)
+    wasKills =
+      (if cogIndex < engine.markKills.len: engine.markKills[cogIndex] else: 0)
+    wasHits =
+      (if cogIndex < engine.markHits.len: engine.markHits[cogIndex] else: 0)
+    wasShots =
+      (if cogIndex < engine.markShots.len: engine.markShots[cogIndex] else: 0)
+  %*{
+    "your_kills": max(0, kills - wasKills),
+    "your_hits": max(0, hits - wasHits),
+    "your_shots": max(0, shots - wasShots),
+    "team_kills": max(0, sim.zombiesKilled - engine.markTeamKills),
+    "zombies_gained": max(0, sim.zombiesSpawned - engine.markSpawned)
+  }
+
+proc markTurn*(engine: var DecisionEngine, sim: SimServer) =
+  ## Snapshots the counters the NEXT turn's `last_turn` block subtracts from.
+  ## Called once per turn, after every seat's view has been built and while the
+  ## sim is still on the turn's own tick.
+  engine.markKills = sim.heroKills
+  engine.markHits = sim.heroHits
+  engine.markShots = sim.heroShots
+  engine.markTeamKills = sim.zombiesKilled
+  engine.markSpawned = sim.zombiesSpawned
 
 proc seatViewJson*(
   engine: DecisionEngine,
@@ -199,6 +243,7 @@ proc seatViewJson*(
       "clear_bonus": sim.config.clearBonus
     }
   }
+  node["last_turn"] = engine.lastTurnJson(sim, cogIndex)
   if seat < engine.haveDirective.len and engine.haveDirective[seat]:
     node["your_last_directive"] = %engine.directives[seat].note
   else:
@@ -485,3 +530,8 @@ proc turn*(
     ## "falling back" is the phrase phase 60 greps the GAME log for.
     echo "knights-archers llm: seat ", seat, " falling back to phalanx (", cause,
       ") on turn ", turnIndex
+
+  ## Every view for this turn has been built, and the sim is still on the
+  ## turn's own tick: mark the counters the NEXT turn's `last_turn` reports
+  ## against.
+  engine.markTurn(sim)

@@ -76,6 +76,44 @@ block theSpawnRateIsZombiesPerSecond:
   check(abs(rate - float(perMille * TargetFps) / 1000.0) < 1.0e-9,
     "spawn_rate_per_s must be spawnRatePerMille * fps / 1000")
 
+block theLastTurnBlockReportsWhatTheSeatJustDid:
+  ## design.md:478-479's `last_turn` block. Before it existed a seat could see
+  ## its cumulative kill count and nothing about the four seconds it had just
+  ## spent, which is the one thing a commander needs to tell whether its last
+  ## order worked (r1 review N11).
+  var engine2 = initDecisionEngine(world)
+  let before = parseJson(engine2.seatViewJson(world, 0, 0, 24))
+  for key in ["your_kills", "your_hits", "your_shots", "team_kills",
+              "zombies_gained"]:
+    check(before["last_turn"].hasKey(key), "last_turn is missing " & key)
+    check(before["last_turn"][key].getInt() == 0,
+      "on turn 0 every last_turn delta must be 0, " & key & " was " &
+        $before["last_turn"][key].getInt())
+  ## Mark the turn, credit some work, and the NEXT view must report the delta
+  ## rather than the running total.
+  engine2.markTurn(world)
+  let killsBefore = world.zombiesKilled
+  world.heroKills[0] += 2
+  world.heroHits[0] += 3
+  world.heroShots[0] += 4
+  world.zombiesKilled += 5
+  world.zombiesSpawned += 1
+  let after = parseJson(engine2.seatViewJson(world, 0, 1, 24))
+  check(after["last_turn"]["your_kills"].getInt() == 2, "your_kills delta")
+  check(after["last_turn"]["your_hits"].getInt() == 3, "your_hits delta")
+  check(after["last_turn"]["your_shots"].getInt() == 4, "your_shots delta")
+  check(after["last_turn"]["team_kills"].getInt() == 5, "team_kills delta")
+  check(after["last_turn"]["zombies_gained"].getInt() == 1,
+    "zombies_gained delta")
+  check(after["you"]["kills"].getInt() == world.heroKills[0],
+    "`you.kills` stays the EPISODE total")
+  ## Put the fixture back the way the later blocks expect it.
+  world.heroKills[0] -= 2
+  world.heroHits[0] -= 3
+  world.heroShots[0] -= 4
+  world.zombiesKilled = killsBefore
+  world.zombiesSpawned -= 1
+
 block theSeedAndTheRngNeverReachASeat:
   for seat in 0 ..< world.seatCount():
     let text = engine.seatViewJson(world, seat, 7, 24)
@@ -120,7 +158,8 @@ block aSeatNeverSeesAnotherSeatsCurrentTurnNote:
 block theViewCarriesTheWholeContract:
   let view = parseJson(engine.seatViewJson(world, 2, 7, 24))
   for key in ["wave", "of", "turn", "turns", "clock", "you", "gate", "breach",
-              "pressure", "zombies", "squad", "score", "your_last_directive"]:
+              "pressure", "zombies", "squad", "score", "last_turn",
+              "your_last_directive"]:
     check(view.hasKey(key), "the view is missing " & key)
   check(view["you"]["role"].getStr() == RoleArcher, "seat 2 is an archer")
   check(view["gate"]["line_x"].getInt() == world.config.gateX, "the gate line")
