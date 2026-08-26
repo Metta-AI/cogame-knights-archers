@@ -102,6 +102,41 @@ block anUnreachableTargetStillMovesEveryTick:
     "a hero ordered to an unreachable target moved on only " & $moved &
       " of 120 ticks")
 
+block anAllScriptedEpisodeReachesItsNaturalEndAsComplete:
+  ## The acceptance checklist's item 7, asserted rather than printed: a
+  ## four-seat all-scripted episode played to its NATURAL end (both waves, the
+  ## sim's own phase machine, no forced stop) reports
+  ## `results.reason == "complete"` — and every mask it emitted on the way is
+  ## inside its legal bounds.
+  ##
+  ## Before this block nothing anywhere compared a reason to `complete`:
+  ## `test_replay` asserts enum MEMBERSHIP (which passes on `fault` and
+  ## `deadline`), `test_endings` pins the `deadline` and `fault` cases, and
+  ## `docker_smoke.sh` only PRINTS the smoke's reason. A rules change that
+  ## turned every scripted episode into `sim_fault` would have left the whole
+  ## suite green.
+  var sim = newHordeSim(maxTicks = 2304, maxGames = 2)
+  let run = sim.runScripted(blPhalanx, collectMasks = true)
+  check(run.waves == 2,
+    "the episode must play both waves to the natural end, played " &
+      $run.waves)
+  check(run.reason == ReasonComplete,
+    "an all-scripted episode that ran to its natural end must report " &
+      "reason `" & ReasonComplete & "`, got `" & run.reason & "`")
+  let results = parseJson(sim.heroResultsJson())
+  check(results["reason"].getStr() == ReasonComplete,
+    "results.reason must be `" & ReasonComplete & "`, got `" &
+      results["reason"].getStr() & "`")
+  check(results["endRule"].getStr() != EndRuleSimFault and
+        results["endRule"].getStr() != EndRuleHostError,
+    "a natural end must not report endRule " & results["endRule"].getStr())
+  check(results["games"].getInt() == 2, "results.games must be 2")
+  check(run.masks.len > 1000,
+    "the run must have emitted a mask per hero per tick, got " &
+      $run.masks.len)
+  for mask in run.masks:
+    check(maskLegal(mask), "illegal mask bits " & $mask & " during the episode")
+
 block phalanxOutKillsStand:
   var a = newHordeSim(maxTicks = 2304, maxGames = 2)
   let runA = a.runScripted(blPhalanx)
