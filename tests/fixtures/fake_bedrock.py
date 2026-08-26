@@ -6,6 +6,12 @@ every request's in-flight window to a log file, so the test can prove all four
 seats' calls really were issued as ONE PARALLEL BATCH rather than one after
 another. `--hang <seconds>` makes it sleep instead, which is how the per-turn
 deadline is exercised without a network.
+
+argv: <log path> [hang seconds] [mode]
+  mode `ok`      -- a usable directive (the default).
+  mode `garbage` -- prose with no JSON object in it, so every seat fails to
+                    parse. The request log then counts the ATTEMPTS, which is
+                    how "retries exactly once" is asserted rather than assumed.
 """
 import json
 import sys
@@ -15,6 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 LOG_PATH = sys.argv[1]
 HANG = float(sys.argv[2]) if len(sys.argv) > 2 else 0.0
+MODE = sys.argv[3] if len(sys.argv) > 3 else "ok"
 LOCK = threading.Lock()
 START = time.monotonic()
 
@@ -39,8 +46,10 @@ class Handler(BaseHTTPRequestHandler):
         # about the reply being usable.
         if HANG > 0:
             time.sleep(HANG)
+        text = ("I am still thinking about the north lane."
+                if MODE == "garbage" else json.dumps(REPLY))
         body = json.dumps({
-            "content": [{"type": "text", "text": json.dumps(REPLY)}],
+            "content": [{"type": "text", "text": text}],
             "stop_reason": "end_turn",
         }).encode()
         ended = time.monotonic() - START

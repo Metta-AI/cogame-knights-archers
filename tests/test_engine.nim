@@ -22,7 +22,7 @@ type FakeSidecar = object
   port: int
   logPath: string
 
-proc startFake(hangSeconds = 0.0): FakeSidecar =
+proc startFake(hangSeconds = 0.0, mode = "ok"): FakeSidecar =
   result.logPath = getTempDir() / "kaz-fake-" & $getCurrentProcessId() &
     "-" & $epochTime() & ".log"
   removeFile(result.logPath)
@@ -30,7 +30,7 @@ proc startFake(hangSeconds = 0.0): FakeSidecar =
   result.process = startProcess(
     "python3",
     args = ["tests/fixtures/fake_bedrock.py", result.logPath,
-            $hangSeconds],
+            $hangSeconds, mode],
     options = {poUsePath, poStdErrToStdOut})
   let line = result.process.outputStream.readLine()
   result.port = parseInt(line.strip())
@@ -125,6 +125,52 @@ block allFourSeatsGoOutInOneParallelBatch:
     if parseJson(record){"k"}.getStr() == "fallback":
       inc fallbacks
   check(fallbacks == 0, "a healthy batch writes no fallback records")
+  fake.stop()
+  delEnv("AWS_ENDPOINT_URL_BEDROCK_RUNTIME")
+  delEnv("AWS_BEARER_TOKEN_BEDROCK")
+
+block anUnusableReplyIsRetriedExactlyOnce:
+  ## Item 8 of the acceptance checklist: parse a bad reply, retry ONCE, then
+  ## fall back and record it. `decide.nim`'s `while open.len > 0 and attempt <
+  ## 2` made the bound structural, and nothing asserted it -- a loop that
+  ## retried three times would have blown the per-turn budget with the whole
+  ## suite green (r1 review N14).
+  ##
+  ## The fake answers prose with no JSON object in it, so every seat fails to
+  ## parse on both attempts and the fake's own request log counts the attempts.
+  var fake = startFake(mode = "garbage")
+  putEnv("AWS_ENDPOINT_URL_BEDROCK_RUNTIME",
+    "http://127.0.0.1:" & $fake.port)
+  putEnv("AWS_BEARER_TOKEN_BEDROCK", "test-token")
+  putEnv("AWS_REGION", "us-west-2")
+  var world = llmWorld()
+  var engine = initDecisionEngine(world)
+  check(not engine.client.disabled, "the fake's credentials must be picked up")
+  engine.seatEveryoneLlm()
+  engine.ctl.observeHeroes(world)
+  let records = engine.turn(world, 0, 24, 0)
+  let seen = fake.windows()
+  check(seen.len == 8,
+    "four seats x exactly TWO attempts = 8 requests; the fake saw " &
+      $seen.len)
+  var maxAttempt = 0
+  var parseErrors = 0
+  for record in records:
+    let node = parseJson(record)
+    if node{"k"}.getStr() != "fallback":
+      continue
+    maxAttempt = max(maxAttempt, node{"attempt"}.getInt())
+    if node{"cause"}.getStr() == "parse_error":
+      inc parseErrors
+  check(maxAttempt == 2,
+    "the highest recorded attempt must be 2, got " & $maxAttempt)
+  check(parseErrors >= 4,
+    "every seat's parse failure must be recorded, got " & $parseErrors)
+  for seat in 0 ..< world.seatCount():
+    check(engine.haveDirective[seat],
+      "NO FAILURE MODE LEAVES A HERO UNACTUATED: seat " & $seat)
+    check(engine.directives[seat].source == dsFallback,
+      "a seat with two unusable replies plays the fallback")
   fake.stop()
   delEnv("AWS_ENDPOINT_URL_BEDROCK_RUNTIME")
   delEnv("AWS_BEARER_TOKEN_BEDROCK")
