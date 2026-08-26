@@ -217,6 +217,61 @@ block theReplayParsesAndReSimulatesEveryHash:
   check(waveovers >= 2, "expected two waveover beats, got " & $waveovers)
   check(closecalls >= 0, "closecall beats are optional on a short fixture")
 
+block seekingMovesTheFrame:
+  ## "Three scrub readouts that do not differ mean a replay that renders once
+  ## and freezes" — the viewer smoke reads the clock at 0 %, 50 % and 100 %.
+  ## The JS half of that is the shell's; the SIM half is here: a seek to a
+  ## fraction of the recording has to land on a different tick with a
+  ## different board, and playback from there has to keep advancing.
+  let data = parseReplayBytes(readFile(outPath))
+  var initialized = initReplayRuntime(
+    data, mismatchQuit = false, gameEventLoggingEnabled = false)
+  var
+    game = move(initialized.sim)
+    player = move(initialized.player)
+    tracker = move(initialized.tracker)
+  let
+    startTick = player.replayStartTick()
+    maxTick = player.replayMaxTick()
+  check(maxTick > startTick + 600,
+    "the fixture must be long enough to scrub: " & $startTick & ".." &
+      $maxTick)
+  ## Walk the precompute scan to completion so seeks land on keyframes, the
+  ## way the hosted viewer does across its first few frames.
+  while not player.scanComplete():
+    player.advanceReplayScan(4096)
+  var readouts: seq[string]
+  for fraction in [0, 50, 100]:
+    let target = startTick + (maxTick - startTick) * fraction div 100
+    discard player.advanceReplayFrame(game, tracker, @[target], @[])
+    readouts.add(
+      $game.tickCount & "|" & $game.phase & "|" & $game.gameIndex & "|" &
+      $game.gameTicksElapsed() & "|" & $game.aliveZombies & "|" &
+      $game.zombiesKilled)
+  check(readouts[0] != readouts[1] and readouts[1] != readouts[2],
+    "seeking must move the frame; got " & $readouts)
+  ## And UNINTERRUPTED playback keeps advancing — the soak's question, asked
+  ## of the sim. A seek deliberately pauses (the seek owns the frame and the
+  ## next one either converges further or resumes), so this runs on a fresh
+  ## runtime rather than after a scrub.
+  var second = initReplayRuntime(
+    data, mismatchQuit = false, gameEventLoggingEnabled = false)
+  var
+    playing = move(second.sim)
+    player2 = move(second.player)
+    tracker2 = move(second.tracker)
+  var marks: seq[int]
+  for slice in 0 ..< 40:
+    discard player2.advanceReplayFrame(playing, tracker2, @[], @[])
+    if slice mod 10 == 9:
+      marks.add(playing.tickCount)
+  check(marks.len == 4, "four samples")
+  for i in 1 ..< marks.len:
+    check(marks[i] > marks[i - 1],
+      "playback stalled: the tick went " & $marks[i - 1] & " -> " & $marks[i] &
+        " over ten frames — a replay that renders once and freezes is as " &
+        "broken as one that never renders")
+
 block theSummaryIsStrictUtf8Json:
   ## The phase-60 substitute for the definition-of-done replay check, run here
   ## against the bytes this test just produced: Python stdlib only, no Nim, no
