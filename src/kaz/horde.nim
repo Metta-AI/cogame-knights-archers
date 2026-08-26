@@ -216,7 +216,13 @@ proc resetHorde*(sim: var SimServer) =
   sim.waveKillsSoFar = 0
   sim.minGateDist = max(1, sim.spawnGateDist)
   sim.minGateTick = -1
-  sim.lastCloseCallTick = low(int) div 2
+  ## A FIXED literal, never `low(int) div 2`: this field is HASHED, and
+  ## `low(int)` is -2^31 on the wasm32 viewer against -2^63 on the native
+  ## server — so the two disagreed on the very first tick's hash and the
+  ## native/wasm gate failed at tick 1 with nothing else wrong. Any sentinel
+  ## far enough below zero that the 48-tick throttle reads "never" works;
+  ## this one is portable.
+  sim.lastCloseCallTick = -1_000_000
   sim.waveCasualty = -1
   sim.breachZombie = -1
 

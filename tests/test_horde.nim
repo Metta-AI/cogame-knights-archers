@@ -2,7 +2,7 @@
 ## march, the lunge, the fatal touch, and seed determinism.
 
 import
-  std/json,
+  std/[json, strutils],
   kaz/sim,
   ./helpers
 
@@ -143,5 +143,61 @@ block theSameSeedProducesTheSameHorde:
     "two runs from one seed must be byte-identical")
   check(stream(679961) != stream(11111),
     "two runs from different seeds must differ")
+
+block noHashedFieldTakesATargetWidthConstant:
+  ## The native/wasm gate failed at tick 1 with nothing else wrong because a
+  ## HASHED field was initialised to `low(int) div 2`, which is -2^31 on the
+  ## wasm32 viewer and -2^63 on the native server. A sentinel that reaches
+  ## gameHash has to be a fixed literal.
+  var hashed: seq[string]
+  let stateSource = readFile("src/kaz/sim_state.nim")
+  let hashBody = stateSource[stateSource.find("proc gameHash*") .. ^1]
+  for line in hashBody.splitLines():
+    if line.contains("proc ") and not line.contains("proc gameHash*"):
+      break
+    let at = line.find("sim.")
+    if at < 0:
+      continue
+    var name = ""
+    for ch in line[at + 4 .. ^1]:
+      if ch in {'a' .. 'z', 'A' .. 'Z', '0' .. '9'}:
+        name.add(ch)
+      else:
+        break
+    if name.len > 0 and name notin hashed:
+      hashed.add(name)
+  check(hashed.len > 20,
+    "the hashed-field scan found only " & $hashed.len & " fields")
+  for path in ["src/kaz/horde.nim", "src/kaz/sim.nim", "src/kaz/arrows.nim",
+               "src/kaz/melee.nim", "src/kaz/sim_state.nim"]:
+    for line in readFile(path).splitLines():
+      if not (line.contains("low(int)") or line.contains("high(int)")):
+        continue
+      if not line.contains("="):
+        continue
+      let target = line.split('=')[0]
+      if not target.contains("sim."):
+        continue
+      for field in hashed:
+        check(not target.contains("." & field),
+          path & ": the HASHED field " & field & " is assigned a " &
+            "target-width constant:\n  " & line.strip())
+
+block theNewSimModulesAreIntegerOnly:
+  ## Nim's `int` is 32 bits under --cpu:wasm32 and a float would additionally
+  ## depend on whichever libm the build container shipped, so the three new
+  ## hashed modules carry no floating point and no libm call at all.
+  for path in ["src/kaz/horde.nim", "src/kaz/arrows.nim", "src/kaz/melee.nim"]:
+    var i = 0
+    for line in readFile(path).splitLines():
+      inc i
+      let code = (if line.find("##") >= 0: line[0 ..< line.find("##")] else: line)
+      if code.strip().startsWith("#"):
+        continue
+      for banned in ["float", "sqrt", "hypot", "arctan", " sin(", " cos(",
+                     " tan(", "aimVector"]:
+        check(not code.contains(banned),
+          path & ":" & $i & " uses " & banned &
+            ", but this module is INTEGER ONLY:\n  " & code.strip())
 
 echo "test_horde: ok"
