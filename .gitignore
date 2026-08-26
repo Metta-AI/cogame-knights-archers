@@ -1,0 +1,18 @@
+# Build artefacts.
+nim.cfg
+nimcache/
+*.exe
+*.out
+*.pdb
+*.ilk
+*.dylib
+*.dylib.abi
+*.log
+out/
+tmp/
+build/
+/dist/
+replay-viewer/dist/
+__pycache__/
+*.pyc
+.DS_Store

@@ -1,0 +1,1151 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Metta-AI/metta/main/packages/coworld/src/coworld/coworld_manifest_schema.json",
+  "tags": [
+    "horde",
+    "cooperative",
+    "knights-archers",
+    "melee",
+    "ranged",
+    "llm",
+    "pettingzoo"
+  ],
+  "episode_timeout_minutes": 20,
+  "game": {
+    "name": "knights-archers",
+    "owner": "daveey",
+    "description": "Four-seat cooperative horde defence. Two knights and two archers hold one gate against a marching horde of the dead; one breach, or one hero death, ends the wave for everybody. A policy is a prompt.",
+    "replay_viewer": {
+      "bundle": "static-replay-viewer"
+    },
+    "runnable": {
+      "type": "game",
+      "image": "{{KNIGHTS_ARCHERS_IMAGE}}",
+      "run": [
+        "/bin/knights-archers"
+      ],
+      "env": {
+        "ANTHROPIC_API_KEY_URI": "secret://coworld/knights-archers/anthropic_api_key"
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-knights-archers/tree/main"
+    },
+    "config_schema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tokens",
+        "players"
+      ],
+      "properties": {
+        "tokens": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "One join token per seat."
+        },
+        "players": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          },
+          "description": "One entry per seat, spectator-side names."
+        },
+        "slots": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "properties": {
+              "team": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          },
+          "description": "Every hero is on the red side; there is no second team."
+        },
+        "roles": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "string",
+            "enum": [
+              "knight",
+              "archer"
+            ]
+          },
+          "description": "Per seat: knight (melee) or archer (ranged)."
+        },
+        "seed": {
+          "type": "integer",
+          "default": 679961,
+          "description": "Episode seed; every zombie spawn derives from it."
+        },
+        "num_agents": {
+          "type": "integer",
+          "minimum": 4,
+          "maximum": 4,
+          "default": 4,
+          "description": "Seats. Two knights and two archers, always four."
+        },
+        "minPlayers": {
+          "type": "integer",
+          "default": 4,
+          "minimum": 4,
+          "maximum": 4
+        },
+        "lives": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 1,
+          "description": "One death ends the wave; there are no respawns."
+        },
+        "hitPoints": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 1,
+          "description": "A touch kills; there is no hit-point pool."
+        },
+        "maxTicks": {
+          "type": "integer",
+          "default": 2304,
+          "minimum": 240,
+          "maximum": 7200,
+          "description": "Ticks in one wave (2304 = 96 s at 24 Hz)."
+        },
+        "maxGames": {
+          "type": "integer",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 4,
+          "description": "Waves per episode."
+        },
+        "turnTicks": {
+          "type": "integer",
+          "default": 96,
+          "minimum": 1,
+          "maximum": 2304,
+          "description": "Sim ticks per decision turn."
+        },
+        "turnBudgetMs": {
+          "type": "integer",
+          "default": 7000,
+          "minimum": 1000,
+          "maximum": 60000
+        },
+        "attempt1Ms": {
+          "type": "integer",
+          "default": 4500,
+          "minimum": 1000,
+          "maximum": 60000
+        },
+        "retryMs": {
+          "type": "integer",
+          "default": 2000,
+          "minimum": 1000,
+          "maximum": 60000
+        },
+        "turnSpacingMs": {
+          "type": "integer",
+          "default": 9000,
+          "minimum": 0,
+          "maximum": 60000,
+          "description": "Wall-clock floor between batch STARTS; holds four seats under the Bedrock sidecar's 30 req/min per-episode cap."
+        },
+        "wallClockBudgetSeconds": {
+          "type": "integer",
+          "default": 690,
+          "minimum": 1,
+          "maximum": 720,
+          "description": "Engine hard stop. 60% of the assumed 1200 s episodeTimeoutSeconds is 720; every shipped variant is at or under 690."
+        },
+        "lobbyJoinTimeoutTicks": {
+          "type": "integer",
+          "default": 2400,
+          "minimum": 0,
+          "maximum": 7200
+        },
+        "startWaitTicks": {
+          "type": "integer",
+          "default": 120,
+          "minimum": 0,
+          "maximum": 2400
+        },
+        "gameOverTicks": {
+          "type": "integer",
+          "default": 72,
+          "minimum": 1,
+          "maximum": 720
+        },
+        "mapPath": {
+          "type": "string",
+          "enum": [
+            "arena"
+          ],
+          "default": "arena"
+        },
+        "fogOfWar": {
+          "type": "boolean",
+          "default": false,
+          "description": "False: every seat sees the whole board."
+        },
+        "fastMode": {
+          "type": "boolean",
+          "default": true
+        },
+        "showPlayerLabels": {
+          "type": "boolean",
+          "default": false
+        },
+        "zombieHp": {
+          "type": "integer",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "A mace does 2, an arrow 1."
+        },
+        "zombieSpeed": {
+          "type": "integer",
+          "default": 384,
+          "minimum": 1,
+          "maximum": 2048,
+          "description": "Motion units/tick; 384 = 36 px/s."
+        },
+        "zombieReach": {
+          "type": "integer",
+          "default": 26,
+          "minimum": 1,
+          "maximum": 200,
+          "description": "Px: this close to a hero centre kills it."
+        },
+        "zombieLungePx": {
+          "type": "integer",
+          "default": 90,
+          "minimum": 0,
+          "maximum": 600
+        },
+        "zombieStuckTicks": {
+          "type": "integer",
+          "default": 24,
+          "minimum": 1,
+          "maximum": 240
+        },
+        "zombieSpawnX": {
+          "type": "integer",
+          "default": 1178,
+          "minimum": 0,
+          "maximum": 1234,
+          "description": "The breach column."
+        },
+        "gateX": {
+          "type": "integer",
+          "default": 40,
+          "minimum": 1,
+          "maximum": 600,
+          "description": "The gate line; a zombie at or past it wins."
+        },
+        "spawnStartPerMille": {
+          "type": "integer",
+          "default": 12,
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "spawnMaxPerMille": {
+          "type": "integer",
+          "default": 50,
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "spawnSaturateTicks": {
+          "type": "integer",
+          "default": 1920,
+          "minimum": 1,
+          "maximum": 7200
+        },
+        "spawnCapAlive": {
+          "type": "integer",
+          "default": 40,
+          "minimum": 1,
+          "maximum": 64
+        },
+        "knightReach": {
+          "type": "integer",
+          "default": 52,
+          "minimum": 1,
+          "maximum": 400
+        },
+        "knightArcBrads": {
+          "type": "integer",
+          "default": 32,
+          "minimum": 1,
+          "maximum": 63,
+          "description": "Wedge half-angle; 32 brads = 45 deg."
+        },
+        "knightDamage": {
+          "type": "integer",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 8
+        },
+        "knightCooldown": {
+          "type": "integer",
+          "default": 18,
+          "minimum": 1,
+          "maximum": 240
+        },
+        "swingTicks": {
+          "type": "integer",
+          "default": 4,
+          "minimum": 1,
+          "maximum": 48
+        },
+        "archerSpeedPct": {
+          "type": "integer",
+          "default": 85,
+          "minimum": 1,
+          "maximum": 200
+        },
+        "arrowSpeed": {
+          "type": "integer",
+          "default": 3072,
+          "minimum": 1,
+          "maximum": 8192,
+          "description": "Motion units/tick; 3072 = 288 px/s."
+        },
+        "arrowRange": {
+          "type": "integer",
+          "default": 528,
+          "minimum": 1,
+          "maximum": 2000
+        },
+        "arrowLifeTicks": {
+          "type": "integer",
+          "default": 44,
+          "minimum": 1,
+          "maximum": 480
+        },
+        "arrowDamage": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 8
+        },
+        "arrowCooldown": {
+          "type": "integer",
+          "default": 12,
+          "minimum": 1,
+          "maximum": 240
+        },
+        "arrowHitRadius": {
+          "type": "integer",
+          "default": 14,
+          "minimum": 1,
+          "maximum": 200
+        },
+        "archerRange": {
+          "type": "integer",
+          "default": 460,
+          "minimum": 1,
+          "maximum": 2000
+        },
+        "roleStandoff": {
+          "type": "integer",
+          "default": 300,
+          "minimum": 0,
+          "maximum": 2000
+        },
+        "screenStandoff": {
+          "type": "integer",
+          "default": 120,
+          "minimum": 0,
+          "maximum": 2000
+        },
+        "archerPanicPx": {
+          "type": "integer",
+          "default": 150,
+          "minimum": 0,
+          "maximum": 2000
+        },
+        "closeCallPx": {
+          "type": "integer",
+          "default": 200,
+          "minimum": 0,
+          "maximum": 2000
+        },
+        "clearBonus": {
+          "type": "integer",
+          "default": 20,
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "Team value banked for a cleared wave."
+        },
+        "roundTarget": {
+          "type": "integer",
+          "default": 90,
+          "minimum": 1,
+          "maximum": 1000,
+          "description": "Team value worth 1.0 for one wave."
+        },
+        "creditEpsilonPerMille": {
+          "type": "integer",
+          "default": 4,
+          "minimum": 0,
+          "maximum": 999,
+          "description": "The whole per-seat kill-credit range, in permille. 4 is deliberately smaller than one extra team kill (1/180 = 5.6 permille)."
+        },
+        "model": {
+          "type": "string",
+          "default": "",
+          "description": "Pinned Bedrock/Anthropic model; empty = auto."
+        },
+        "maxOutputTokens": {
+          "type": "integer",
+          "default": 900,
+          "minimum": 1,
+          "maximum": 8192
+        }
+      }
+    },
+    "results_schema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "names",
+        "scores",
+        "win",
+        "role",
+        "reason",
+        "endRule"
+      ],
+      "properties": {
+        "names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "Real policy names, spectator side."
+        },
+        "scores": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "teamScore + the kill-credit epsilon."
+        },
+        "win": {
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "The same boolean for all four seats."
+        },
+        "role": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "knight or archer."
+        },
+        "alias": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "The in-game anonymous alias."
+        },
+        "kills": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "Zombies whose last damage came from this seat."
+        },
+        "hits": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "Damaging connections."
+        },
+        "shots": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "Arrows loosed or swings thrown."
+        },
+        "llmTurns": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "Turns whose directive came from an LLM."
+        },
+        "fallbackTurns": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "Turns that fell back to scripted."
+        },
+        "teamScore": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "min(kills + 20*cleared, 180)/180."
+        },
+        "teamKills": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "wavesCleared": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "waveTicks": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 1,
+          "maxItems": 4,
+          "description": "Ticks each wave played."
+        },
+        "waveEndRules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "maxItems": 4,
+          "description": "How each wave ended."
+        },
+        "waveKills": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 1,
+          "maxItems": 4,
+          "description": "Kills banked in each wave."
+        },
+        "closestCallPx": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 1,
+          "maxItems": 4,
+          "description": "Closest a zombie came to the gate."
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "deadline",
+            "fault"
+          ]
+        },
+        "endRule": {
+          "type": "string",
+          "enum": [
+            "full_time",
+            "breach",
+            "casualty",
+            "wall_clock",
+            "sim_fault",
+            "host_error"
+          ]
+        },
+        "games": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "finalTick": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "seed": {
+          "type": "integer"
+        }
+      }
+    },
+    "protocols": {
+      "player": {
+        "type": "text",
+        "value": "# Wire protocol — knights-archers\n\nInherited from `coworld-ctf` (the Sprite v1 protocol over websockets) with the\nhorde's own record vocabulary on top.\n\n## Runtime contract\n\nThe game container reads the standard `COGAME_*` environment:\n\n| variable | meaning |\n|---|---|\n| `COGAME_CONFIG_URI` | the episode's game config JSON |\n| `COGAME_RESULTS_URI` | where the results document is written |\n| `COGAME_SAVE_REPLAY_URI` | where the `.replay` bytes are written |\n| `COGAME_PLAYER_FAILURE_URI` | where a no-show seat is reported |\n| `COGAME_EVENTS_URI` | the tier-2 JSON-lines analysis stream |\n| `COGAME_METRICS_URI` | per-episode metrics |\n| `COGAME_HOST` / `COGAME_PORT` | the listener |\n| `ANTHROPIC_API_KEY_URI` | `secret://coworld/knights-archers/anthropic_api_key` |\n\nRoutes: `GET /healthz`, `GET /player?slot=N&token=T` (websocket),\n`GET /global`, `GET /client/global`, `GET /client/player`, `GET /client/replay`,\n`GET /replay-data`, `GET /reward`. A bad slot or token is a 403. `/healthz` and\n`/global` keep answering for a bounded shutdown grace after the artifacts are\nwritten.\n\n## The seat socket\n\nA seat receives one binary Sprite v1 frame per tick and sends **no inputs at\nall**: every actuator mask is computed server-side by the control layer. The\nonly thing a seat sends is:\n\n1. **one chat message (`0x81`) carrying its registration**, re-sent for the\n   first ~10 s of frames because joins are slot-sequential:\n\n   ```json\n   {\"type\":\"register\",\"prompt\":\"<strategy or empty>\",\n    \"scripted\":\"phalanx\"|\"stand\"|null,\"policy\":\"<free label>\"}\n   ```\n\n   The server consumes it as registration, never applies it as a shout and\n   never writes the prompt to the replay — only a redacted `register` record.\n\n2. **the Ready packet (`0x85`)** after each received frame. Legitimate here in a\n   way it is not for an ordinary client: this seat sends no inputs, so the\n   dead-reckoning hazard `fastMode` warns about cannot arise.\n\nEvery hero, every zombie and every arrow appears in every seat's frame:\n`fogOfWar` is false in every shipped variant.\n\n## The replay\n\nA binary `COWLDKAZ` file: magic, format version, game name/version, the resolved\nconfig JSON (seed, `mapSpec`, roster, every tuning field), then joins, per-hero\ninput-mask changes, chat records and **one `gameHash` per tick**. The whole\nhorde is re-derived from the seeded RNG at playback and never recorded, which is\nwhy the file stays around 350 KB and why a hash mismatch is a real integrity\nsignal.\n\nChat records:\n\n| `k` | fields |\n|---|---|\n| `register` | `seat`, `alias`, `role`, `policy` (≤ 48 runes), `kind`, `baseline` |\n| `directive` | `wave`, `turn`, `seat`, `alias`, `role`, `source`, `latency_ms`, `note` (≤ 160 runes), `cogs[]` |\n| `fallback` | `wave`, `turn`, `seat`, `attempt`, `cause`, `detail` (≤ 200 runes) |\n| `budget_guard` | `turn`, `remaining_s` |\n| `result` | the whole results document, once at episode end |\n\nEvery recorded string is truncated on **rune** boundaries, never bytes.\n`tools/replay_summary.py` decodes all of it with the Python standard library.\n\n## Derived broadcast events\n\nDiffed from state, so they cost no replay bytes and read identically live and in\nreplay: `phase`, `wavestart`, `spawn`, `swing`, `shot`, `kill`, `lunge`,\n`closecall`, `casualty`, `breach`, `waveover`. The five scrubber beat kinds are\n`wavestart`, `closecall`, `casualty`, `breach`, `waveover`.\n\n## Results\n\nWritten to `COGAME_RESULTS_URI`; it must equal the manifest's `results_schema`\nkey for key (that schema is `additionalProperties: false`).\n\n```json\n{\"names\": [...], \"scores\": [...], \"win\": [...], \"role\": [...], \"alias\": [...],\n \"kills\": [...], \"hits\": [...], \"shots\": [...],\n \"llmTurns\": [...], \"fallbackTurns\": [...],\n \"teamScore\": 0.611, \"teamKills\": 93, \"wavesCleared\": 1,\n \"waveTicks\": [...], \"waveEndRules\": [...], \"waveKills\": [...],\n \"closestCallPx\": [...],\n \"reason\": \"complete\", \"endRule\": \"casualty\",\n \"games\": 2, \"finalTick\": 3111, \"seed\": 679961}\n```\n\nThe ten seat-indexed arrays have exactly `num_agents` entries. `reason` is one\nof `complete`, `deadline`, `fault`; `endRule` one of `full_time`, `breach`,\n`casualty`, `wall_clock`, `sim_fault`, `host_error`.\n"
+      },
+      "global": {
+        "type": "text",
+        "value": "# Wire protocol — knights-archers\n\nInherited from `coworld-ctf` (the Sprite v1 protocol over websockets) with the\nhorde's own record vocabulary on top.\n\n## Runtime contract\n\nThe game container reads the standard `COGAME_*` environment:\n\n| variable | meaning |\n|---|---|\n| `COGAME_CONFIG_URI` | the episode's game config JSON |\n| `COGAME_RESULTS_URI` | where the results document is written |\n| `COGAME_SAVE_REPLAY_URI` | where the `.replay` bytes are written |\n| `COGAME_PLAYER_FAILURE_URI` | where a no-show seat is reported |\n| `COGAME_EVENTS_URI` | the tier-2 JSON-lines analysis stream |\n| `COGAME_METRICS_URI` | per-episode metrics |\n| `COGAME_HOST` / `COGAME_PORT` | the listener |\n| `ANTHROPIC_API_KEY_URI` | `secret://coworld/knights-archers/anthropic_api_key` |\n\nRoutes: `GET /healthz`, `GET /player?slot=N&token=T` (websocket),\n`GET /global`, `GET /client/global`, `GET /client/player`, `GET /client/replay`,\n`GET /replay-data`, `GET /reward`. A bad slot or token is a 403. `/healthz` and\n`/global` keep answering for a bounded shutdown grace after the artifacts are\nwritten.\n\n## The seat socket\n\nA seat receives one binary Sprite v1 frame per tick and sends **no inputs at\nall**: every actuator mask is computed server-side by the control layer. The\nonly thing a seat sends is:\n\n1. **one chat message (`0x81`) carrying its registration**, re-sent for the\n   first ~10 s of frames because joins are slot-sequential:\n\n   ```json\n   {\"type\":\"register\",\"prompt\":\"<strategy or empty>\",\n    \"scripted\":\"phalanx\"|\"stand\"|null,\"policy\":\"<free label>\"}\n   ```\n\n   The server consumes it as registration, never applies it as a shout and\n   never writes the prompt to the replay — only a redacted `register` record.\n\n2. **the Ready packet (`0x85`)** after each received frame. Legitimate here in a\n   way it is not for an ordinary client: this seat sends no inputs, so the\n   dead-reckoning hazard `fastMode` warns about cannot arise.\n\nEvery hero, every zombie and every arrow appears in every seat's frame:\n`fogOfWar` is false in every shipped variant.\n\n## The replay\n\nA binary `COWLDKAZ` file: magic, format version, game name/version, the resolved\nconfig JSON (seed, `mapSpec`, roster, every tuning field), then joins, per-hero\ninput-mask changes, chat records and **one `gameHash` per tick**. The whole\nhorde is re-derived from the seeded RNG at playback and never recorded, which is\nwhy the file stays around 350 KB and why a hash mismatch is a real integrity\nsignal.\n\nChat records:\n\n| `k` | fields |\n|---|---|\n| `register` | `seat`, `alias`, `role`, `policy` (≤ 48 runes), `kind`, `baseline` |\n| `directive` | `wave`, `turn`, `seat`, `alias`, `role`, `source`, `latency_ms`, `note` (≤ 160 runes), `cogs[]` |\n| `fallback` | `wave`, `turn`, `seat`, `attempt`, `cause`, `detail` (≤ 200 runes) |\n| `budget_guard` | `turn`, `remaining_s` |\n| `result` | the whole results document, once at episode end |\n\nEvery recorded string is truncated on **rune** boundaries, never bytes.\n`tools/replay_summary.py` decodes all of it with the Python standard library.\n\n## Derived broadcast events\n\nDiffed from state, so they cost no replay bytes and read identically live and in\nreplay: `phase`, `wavestart`, `spawn`, `swing`, `shot`, `kill`, `lunge`,\n`closecall`, `casualty`, `breach`, `waveover`. The five scrubber beat kinds are\n`wavestart`, `closecall`, `casualty`, `breach`, `waveover`.\n\n## Results\n\nWritten to `COGAME_RESULTS_URI`; it must equal the manifest's `results_schema`\nkey for key (that schema is `additionalProperties: false`).\n\n```json\n{\"names\": [...], \"scores\": [...], \"win\": [...], \"role\": [...], \"alias\": [...],\n \"kills\": [...], \"hits\": [...], \"shots\": [...],\n \"llmTurns\": [...], \"fallbackTurns\": [...],\n \"teamScore\": 0.611, \"teamKills\": 93, \"wavesCleared\": 1,\n \"waveTicks\": [...], \"waveEndRules\": [...], \"waveKills\": [...],\n \"closestCallPx\": [...],\n \"reason\": \"complete\", \"endRule\": \"casualty\",\n \"games\": 2, \"finalTick\": 3111, \"seed\": 679961}\n```\n\nThe ten seat-indexed arrays have exactly `num_agents` entries. `reason` is one\nof `complete`, `deadline`, `fault`; `endRule` one of `full_time`, `breach`,\n`casualty`, `wall_clock`, `sim_fault`, `host_error`.\n"
+      }
+    },
+    "docs": {
+      "readme": {
+        "type": "text",
+        "value": "# cogame-knights-archers\n\n**Four heroes hold one gate against a rising horde of the dead, and a single\nmistake ends the wave for everybody.**\n\nTwo knights and two archers defend the west gate of a fixed 1235 × 659 arena.\nThe dead walk in at the east breach and march west. A knight kills in one blow\nbut has to stand inside a zombie's reach to do it; an archer kills in two arrows\nfrom six body-lengths away but walks slower and dies exactly as fast. A zombie\nthat touches **any** hero kills that hero, and the wave ends that instant. So\ndoes a zombie reaching the gate. Survive the whole 96-second wave and the squad\nbanks a large bonus.\n\nEverybody's score is the same score. It is a fully cooperative game: the whole\nper-seat kill-credit range is 0.004, which is smaller than one extra team kill\n(1/180), so killing more than your share is worth nothing if the line breaks.\n\nA policy here **is a prompt** — see [docs/COMMANDING.md](docs/COMMANDING.md).\n\n## Watch it\n\nReplays are a **static wasm bundle**, never a pod: the same Nim simulation that\nran the episode is compiled to WebAssembly and re-derives every frame in the\nbrowser from the recorded actuator masks, checking the recorded `gameHash` every\ntick. The whole horde is re-derived from the episode seed and never recorded.\n\nThe broadcast chrome shows the horde pressure bar (the leader's progress from\nthe breach to the gate), four hero plates with live kill credits, a chalk line\non the board at the closest a zombie has come to the gate, the commander lines\neach seat issued, and a scrubber whose beats are clickable buttons for every\nwave start, closest call, casualty, breach and wave end.\n\n## Play it yourself\n\n```bash\ndocker compose build\ncoworld upload-policy coworld-knights-archers:latest \\\n  --name my-warden --run /bin/knights-archers-player \\\n  --secret-env PLAYER_PROMPT=\"Hold a LINE, do not chase. ...\"\n```\n\n## Layout\n\n| path | what |\n|---|---|\n| `src/knights_archers.nim` | the game server entrypoint (`/bin/knights-archers`) |\n| `src/knights_archers_player.nim` | the thin seat registrar (`/bin/knights-archers-player`) |\n| `src/kaz/horde.nim` | the zombie list, the spawn schedule, the gate flow field, the march |\n| `src/kaz/arrows.nim` | the in-flight arrow list |\n| `src/kaz/melee.nim` | the knight's wedge |\n| `src/kaz/{decide,directives,control,baselines,llm}.nim` | the per-turn decision layer |\n| `src/kaz/{sim,sim_types,sim_state,server,broadcast,replays,global}.nim` | the inherited engine |\n| `client/` | the broadcast chrome |\n| `replay-viewer/` | the emscripten static replay bundle |\n| `tools/tune_baselines.nim` | the grid harness that chose `phalanx`'s numbers |\n| `docs/` | [rules](docs/RULES.md), [protocol](docs/PROTOCOL.md), [commanding](docs/COMMANDING.md) |\n\nForked from [`Metta-AI/coworld-ctf`](https://github.com/Metta-AI/coworld-ctf)\n(paintbot). Rules adapted from PettingZoo's `knights_archers_zombies_v11`.\n\n## Build and test\n\nEverything compiles in CI (`.github/workflows/ci.yml`): the Nim suite twice\n(debug and release), a raw-Docker episode from the certification fixture in the\nproduction image, and the wasm viewer built and then **opened in a real\nbrowser** against the replay that episode produced.\n\n```bash\nnim r --path:src tests/test_horde.nim      # any tests/*.nim, from the repo root\ndocker build -t coworld-knights-archers:ci .\ntools/ci/docker_smoke.sh coworld-knights-archers:ci\ntools/build_replay_viewer.sh \"$PWD/dist/static-replay-viewer\"\n```\n"
+      },
+      "pages": [
+        {
+          "id": "rules",
+          "title": "Rules",
+          "content": {
+            "type": "text",
+            "value": "# Knights Archers Zombies — rules\n\nFour heroes hold one gate against a rising horde, and a single mistake ends the\nwave for everybody.\n\n## The board\n\nA fixed **1235 × 659** arena (`mapPath: \"arena\"`), 24 ticks per second. The dead\nwalk in at the **breach** on the east edge (`x = 1178`) and march west toward the\n**gate** on the west edge (`x = 40`). Both are baked into the floor art, so the\ngeometry of the game is legible with the HUD off.\n\n## The seats\n\n`num_agents` is **4**. One seat drives exactly one hero.\n\n| Seat | Alias — the only name the game uses | Role | Weapon |\n|---|---|---|---|\n| 0 | `KNIGHT-alpha` | knight | mace |\n| 1 | `KNIGHT-beta` | knight | mace |\n| 2 | `ARCHER-alpha` | archer | bow |\n| 3 | `ARCHER-beta` | archer | bow |\n\n| | Knight | Archer |\n|---|---|---|\n| speed | 66 px/s | 56 px/s (85 %) |\n| reach | 52 px, ±45° wedge, line of sight required | 528 px, straight |\n| damage | 2 — one blow kills | 1 — two arrows kill |\n| cooldown | 0.75 s | 0.5 s |\n\nThere is **no friendly fire**: arrows pass through heroes.\n\n## The horde\n\nZombies enter on a ramping schedule — 0.29/s at the start of a wave rising to\n1.20/s after 80 s, about **79 zombies** over a full wave, never more than 40\nalive at once. Each has **2 hit points** and walks at **36 px/s** down a flow\nfield toward the gate. A zombie with a living hero inside **90 px** stops\nmarching and charges it. Zombies do not collide with each other.\n\n## Losing\n\nThe wave ends **the instant**:\n\n1. a zombie's centre reaches `x <= 40` — a **breach**; or\n2. a zombie's centre comes within **26 px** of any living hero — a **casualty**.\n\nThere are no respawns, no second chances, and no hit-point pool: `hitPoints` 1,\n`lives` 1. A hero who is not you dying ends your wave too.\n\n## Winning\n\nAn episode is **two waves** of 2304 ticks (96 s). Surviving a whole wave\n**clears** it.\n\n```\nkills      = every zombie the four of you killed, over the episode\ncleared    = waves that ran their full 96 s with the line intact (0, 1 or 2)\nteamValue  = kills + 20 * cleared\nteamScore  = min(teamValue, 180) / 180                 -- the same for ALL FOUR\ncredit[s]  = 0.004 * kills[s] / max(1, kills)          -- the tie-break only\nscores[s]  = teamScore + credit[s]\nwin[s]     = teamScore >= 0.5\n```\n\nEverybody's score is the same score. The personal credit range (0.004) is\n**smaller than one extra team kill** (1/180 = 0.005556), so killing more than\nyour share is worth nothing if the line breaks.\n\n## The published scripted baselines\n\nBoth emit the same directive object an LLM does, on the same 4.0 s cadence.\nThey are published so that \"cooperating with a partner you did not write\" here\nmeans \"a partner whose rules you know\".\n\n- **`phalanx`** — the certification player, the per-turn fallback, the driver of\n  a seat that never connects, and the default. It ranks the live zombies by gate\n  distance and divides them so two seats never duplicate work: KNIGHT-alpha\n  intercepts the leader, KNIGHT-beta the second, ARCHER-alpha focuses the leader\n  and ARCHER-beta the third. An archer with anything inside 150 px falls back\n  toward the gate for a turn; a knight with four bodies inside 90 px gives 140 px\n  of ground for a turn. With no zombies alive everybody holds the choke —\n  knights at `[560, 240]` and `[560, 420]`, archers at `[300, 240]` and\n  `[300, 420]`.\n- **`stand`** — deliberately weaker and different in shape: every hero holds its\n  choke post for the whole wave and never moves. It kills whatever walks into\n  reach and leaks everything that walks around it.\n\n`tools/tune_baselines.nim` is the grid harness that chose `phalanx`'s three\nnumbers; `tools/tune_baselines --check` re-plays them in CI.\n\n## Orders\n\nEvery 4 seconds each seat issues ONE order for its own hero and a deterministic\ncontroller executes it for the next 4 seconds. See\n[COMMANDING.md](COMMANDING.md) for the schema and\n[PROTOCOL.md](PROTOCOL.md) for the wire.\n\n| intent | what the controller does |\n|---|---|\n| `intercept` | meet the zombie closest to the gate and kill it |\n| `hold` | stand at `target` and kill whatever walks into reach |\n| `screen` | stand 120 px in front of the leader, between it and the gate |\n| `focus` | attack the zombie nearest `target` |\n| `fall_back` | walk to `target` and do not attack |\n| `regroup` | move to the middle of your surviving squadmates |\n"
+          }
+        },
+        {
+          "id": "protocol",
+          "title": "Wire protocol",
+          "content": {
+            "type": "text",
+            "value": "# Wire protocol — knights-archers\n\nInherited from `coworld-ctf` (the Sprite v1 protocol over websockets) with the\nhorde's own record vocabulary on top.\n\n## Runtime contract\n\nThe game container reads the standard `COGAME_*` environment:\n\n| variable | meaning |\n|---|---|\n| `COGAME_CONFIG_URI` | the episode's game config JSON |\n| `COGAME_RESULTS_URI` | where the results document is written |\n| `COGAME_SAVE_REPLAY_URI` | where the `.replay` bytes are written |\n| `COGAME_PLAYER_FAILURE_URI` | where a no-show seat is reported |\n| `COGAME_EVENTS_URI` | the tier-2 JSON-lines analysis stream |\n| `COGAME_METRICS_URI` | per-episode metrics |\n| `COGAME_HOST` / `COGAME_PORT` | the listener |\n| `ANTHROPIC_API_KEY_URI` | `secret://coworld/knights-archers/anthropic_api_key` |\n\nRoutes: `GET /healthz`, `GET /player?slot=N&token=T` (websocket),\n`GET /global`, `GET /client/global`, `GET /client/player`, `GET /client/replay`,\n`GET /replay-data`, `GET /reward`. A bad slot or token is a 403. `/healthz` and\n`/global` keep answering for a bounded shutdown grace after the artifacts are\nwritten.\n\n## The seat socket\n\nA seat receives one binary Sprite v1 frame per tick and sends **no inputs at\nall**: every actuator mask is computed server-side by the control layer. The\nonly thing a seat sends is:\n\n1. **one chat message (`0x81`) carrying its registration**, re-sent for the\n   first ~10 s of frames because joins are slot-sequential:\n\n   ```json\n   {\"type\":\"register\",\"prompt\":\"<strategy or empty>\",\n    \"scripted\":\"phalanx\"|\"stand\"|null,\"policy\":\"<free label>\"}\n   ```\n\n   The server consumes it as registration, never applies it as a shout and\n   never writes the prompt to the replay — only a redacted `register` record.\n\n2. **the Ready packet (`0x85`)** after each received frame. Legitimate here in a\n   way it is not for an ordinary client: this seat sends no inputs, so the\n   dead-reckoning hazard `fastMode` warns about cannot arise.\n\nEvery hero, every zombie and every arrow appears in every seat's frame:\n`fogOfWar` is false in every shipped variant.\n\n## The replay\n\nA binary `COWLDKAZ` file: magic, format version, game name/version, the resolved\nconfig JSON (seed, `mapSpec`, roster, every tuning field), then joins, per-hero\ninput-mask changes, chat records and **one `gameHash` per tick**. The whole\nhorde is re-derived from the seeded RNG at playback and never recorded, which is\nwhy the file stays around 350 KB and why a hash mismatch is a real integrity\nsignal.\n\nChat records:\n\n| `k` | fields |\n|---|---|\n| `register` | `seat`, `alias`, `role`, `policy` (≤ 48 runes), `kind`, `baseline` |\n| `directive` | `wave`, `turn`, `seat`, `alias`, `role`, `source`, `latency_ms`, `note` (≤ 160 runes), `cogs[]` |\n| `fallback` | `wave`, `turn`, `seat`, `attempt`, `cause`, `detail` (≤ 200 runes) |\n| `budget_guard` | `turn`, `remaining_s` |\n| `result` | the whole results document, once at episode end |\n\nEvery recorded string is truncated on **rune** boundaries, never bytes.\n`tools/replay_summary.py` decodes all of it with the Python standard library.\n\n## Derived broadcast events\n\nDiffed from state, so they cost no replay bytes and read identically live and in\nreplay: `phase`, `wavestart`, `spawn`, `swing`, `shot`, `kill`, `lunge`,\n`closecall`, `casualty`, `breach`, `waveover`. The five scrubber beat kinds are\n`wavestart`, `closecall`, `casualty`, `breach`, `waveover`.\n\n## Results\n\nWritten to `COGAME_RESULTS_URI`; it must equal the manifest's `results_schema`\nkey for key (that schema is `additionalProperties: false`).\n\n```json\n{\"names\": [...], \"scores\": [...], \"win\": [...], \"role\": [...], \"alias\": [...],\n \"kills\": [...], \"hits\": [...], \"shots\": [...],\n \"llmTurns\": [...], \"fallbackTurns\": [...],\n \"teamScore\": 0.611, \"teamKills\": 93, \"wavesCleared\": 1,\n \"waveTicks\": [...], \"waveEndRules\": [...], \"waveKills\": [...],\n \"closestCallPx\": [...],\n \"reason\": \"complete\", \"endRule\": \"casualty\",\n \"games\": 2, \"finalTick\": 3111, \"seed\": 679961}\n```\n\nThe ten seat-indexed arrays have exactly `num_agents` entries. `reason` is one\nof `complete`, `deadline`, `fault`; `endRule` one of `full_time`, `breach`,\n`casualty`, `wall_clock`, `sim_fault`, `host_error`.\n"
+          }
+        },
+        {
+          "id": "commanding",
+          "title": "Writing a knights-archers prompt",
+          "content": {
+            "type": "text",
+            "value": "# Writing a knights-archers prompt\n\nA policy here **is a prompt**. The image is the same for every policy; the only\ndifference between a champion and a filler is one environment variable.\n\n```bash\ncoworld upload-policy coworld-knights-archers:latest \\\n  --name my-warden \\\n  --run /bin/knights-archers-player \\\n  --secret-env PLAYER_PROMPT=\"<your strategy, in plain English>\"\n```\n\n`PLAYER_SCRIPTED=phalanx` or `PLAYER_SCRIPTED=stand` makes a seat play a\npublished baseline instead. A seat that sets neither plays `phalanx`.\n\n## What the model is asked\n\nOnce every 4 seconds of sim time, the GAME server sends your seat a system\nprompt (the rules, with your role's paragraph named), then your `PLAYER_PROMPT`\nunder a \"GUIDANCE FROM YOUR OPERATOR\" heading, then the seat's view as JSON. All\nfour seats are asked **at the same instant, in one parallel batch** — you cannot\nsee what the others are deciding this turn, only what they *said* last turn.\n\n## What it must answer\n\n```json\n{\"note\": \"archers hold the choke, I take the north lane\",\n \"cogs\": [{\"id\": \"KNIGHT-alpha\", \"intent\": \"intercept\", \"target\": [820, 300],\n           \"face\": [900, 290], \"say\": \"north\"}]}\n```\n\n| field | cap | repair |\n|---|---|---|\n| `note` | ≤ 160 runes | truncated on a rune boundary; newlines collapse |\n| `cogs` | exactly 1 entry — your own hero | extras dropped; empty keeps last turn's order |\n| `cogs[].id` | your own alias, ≤ 16 runes | an unmatched entry is assigned by position |\n| `cogs[].intent` | one of `intercept` `hold` `screen` `focus` `fall_back` `regroup` | → `intercept` |\n| `cogs[].target` | `[x, y]` | clamped to the map; missing → the gate centre |\n| `cogs[].face` | `[x, y]` or null | clamped; missing → the controller aims |\n| `cogs[].say` | ≤ 10 runes | truncated, then printable-ASCII filtered. It is a REAL in-game shout every hero within 247 px hears. |\n\nParsing is tolerant: markdown fences, prose before the object, `cogs` as an\nid-keyed object, a bare order with no `cogs` wrapper, numeric strings and\nhyphenated intents are all accepted. Two consecutive unusable replies and the\nseat plays the `phalanx` directive for that turn, with a `fallback` record in\nthe replay naming the cause.\n\n## What actually wins\n\n- **The line, not the kill count.** A cleared wave is worth 20 kills, and a wave\n  that ends at 0:08 to a careless knight banks whatever it had. Your score is\n  the squad's score.\n- **Distance is the archer's whole role.** A zombie inside 90 px charges, and it\n  covers 144 px inside one turn. An archer that walks toward its target is\n  usually walking into the thing that kills it.\n- **A knight is not invulnerable.** It kills once every 0.9 seconds and dies to\n  one touch. Three bodies at once is a losing trade even for a mace.\n- **Say what you are about to do.** All four decide simultaneously, so `say` is\n  the only way two seats avoid taking the same zombie.\n\nThe two shipped champions are worked examples:\n\n- **`knights-archers-warden`** holds a LINE and never chases. Lanes are split by\n  y; knights intercept the leader in their own half; archers focus from 300–450\n  px and fall back the moment anything is inside 200 px.\n- **`knights-archers-volley`** kills the leader first, together: both archers\n  focus the same zombie every turn (two arrows in one second is a kill; two\n  arrows on two zombies is two wounded zombies), while the knights screen it.\n"
+          }
+        }
+      ]
+    }
+  },
+  "player": [
+    {
+      "id": "baseline",
+      "type": "player",
+      "name": "Phalanx Baseline",
+      "description": "Scripted hero: knights intercept the two leading zombies, archers focus-fire and back off when anything gets close.",
+      "image": "{{KNIGHTS_ARCHERS_IMAGE}}",
+      "run": [
+        "/bin/knights-archers-player"
+      ],
+      "env": {
+        "PLAYER_SCRIPTED": "phalanx"
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-knights-archers/tree/main",
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "1"
+        }
+      }
+    }
+  ],
+  "variants": [
+    {
+      "id": "default",
+      "name": "Horde — two waves",
+      "description": "The league variant: two 96-second waves against the shipped horde. One breach or one hero death ends the wave.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Knight A"
+          },
+          {
+            "name": "Knight B"
+          },
+          {
+            "name": "Archer A"
+          },
+          {
+            "name": "Archer B"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "red"
+          }
+        ],
+        "roles": [
+          "knight",
+          "knight",
+          "archer",
+          "archer"
+        ],
+        "tokens": [
+          "t0",
+          "t1",
+          "t2",
+          "t3"
+        ],
+        "num_agents": 4,
+        "minPlayers": 4,
+        "lives": 1,
+        "hitPoints": 1,
+        "mapPath": "arena",
+        "fogOfWar": false,
+        "fastMode": true,
+        "showPlayerLabels": false,
+        "seed": 679961,
+        "maxTicks": 2304,
+        "maxGames": 2,
+        "turnTicks": 96,
+        "turnBudgetMs": 7000,
+        "attempt1Ms": 4500,
+        "retryMs": 2000,
+        "turnSpacingMs": 9000,
+        "wallClockBudgetSeconds": 690,
+        "lobbyJoinTimeoutTicks": 2400,
+        "startWaitTicks": 120,
+        "gameOverTicks": 72,
+        "zombieHp": 2,
+        "zombieSpeed": 384,
+        "zombieReach": 26,
+        "zombieLungePx": 90,
+        "zombieStuckTicks": 24,
+        "zombieSpawnX": 1178,
+        "gateX": 40,
+        "spawnStartPerMille": 12,
+        "spawnMaxPerMille": 50,
+        "spawnSaturateTicks": 1920,
+        "spawnCapAlive": 40,
+        "knightReach": 52,
+        "knightArcBrads": 32,
+        "knightDamage": 2,
+        "knightCooldown": 18,
+        "swingTicks": 4,
+        "archerSpeedPct": 85,
+        "arrowSpeed": 3072,
+        "arrowRange": 528,
+        "arrowLifeTicks": 44,
+        "arrowDamage": 1,
+        "arrowCooldown": 12,
+        "arrowHitRadius": 14,
+        "archerRange": 460,
+        "roleStandoff": 300,
+        "screenStandoff": 120,
+        "archerPanicPx": 150,
+        "closeCallPx": 200,
+        "clearBonus": 20,
+        "roundTarget": 90,
+        "creditEpsilonPerMille": 4
+      }
+    },
+    {
+      "id": "horde-short",
+      "name": "Horde — one wave",
+      "description": "A single 96-second wave. Half the episode, same rules — the quick look.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Knight A"
+          },
+          {
+            "name": "Knight B"
+          },
+          {
+            "name": "Archer A"
+          },
+          {
+            "name": "Archer B"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "red"
+          }
+        ],
+        "roles": [
+          "knight",
+          "knight",
+          "archer",
+          "archer"
+        ],
+        "tokens": [
+          "t0",
+          "t1",
+          "t2",
+          "t3"
+        ],
+        "num_agents": 4,
+        "minPlayers": 4,
+        "lives": 1,
+        "hitPoints": 1,
+        "mapPath": "arena",
+        "fogOfWar": false,
+        "fastMode": true,
+        "showPlayerLabels": false,
+        "seed": 679961,
+        "maxTicks": 2304,
+        "maxGames": 1,
+        "turnTicks": 96,
+        "turnBudgetMs": 7000,
+        "attempt1Ms": 4500,
+        "retryMs": 2000,
+        "turnSpacingMs": 9000,
+        "wallClockBudgetSeconds": 690,
+        "lobbyJoinTimeoutTicks": 2400,
+        "startWaitTicks": 120,
+        "gameOverTicks": 72,
+        "zombieHp": 2,
+        "zombieSpeed": 384,
+        "zombieReach": 26,
+        "zombieLungePx": 90,
+        "zombieStuckTicks": 24,
+        "zombieSpawnX": 1178,
+        "gateX": 40,
+        "spawnStartPerMille": 12,
+        "spawnMaxPerMille": 50,
+        "spawnSaturateTicks": 1920,
+        "spawnCapAlive": 40,
+        "knightReach": 52,
+        "knightArcBrads": 32,
+        "knightDamage": 2,
+        "knightCooldown": 18,
+        "swingTicks": 4,
+        "archerSpeedPct": 85,
+        "arrowSpeed": 3072,
+        "arrowRange": 528,
+        "arrowLifeTicks": 44,
+        "arrowDamage": 1,
+        "arrowCooldown": 12,
+        "arrowHitRadius": 14,
+        "archerRange": 460,
+        "roleStandoff": 300,
+        "screenStandoff": 120,
+        "archerPanicPx": 150,
+        "closeCallPx": 200,
+        "clearBonus": 20,
+        "roundTarget": 90,
+        "creditEpsilonPerMille": 4
+      }
+    },
+    {
+      "id": "horde-hard",
+      "name": "Horde — dense",
+      "description": "The spawn rate saturates at 72 per mille instead of 50: about half again as many dead over a wave, same seat count.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Knight A"
+          },
+          {
+            "name": "Knight B"
+          },
+          {
+            "name": "Archer A"
+          },
+          {
+            "name": "Archer B"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "red"
+          }
+        ],
+        "roles": [
+          "knight",
+          "knight",
+          "archer",
+          "archer"
+        ],
+        "tokens": [
+          "t0",
+          "t1",
+          "t2",
+          "t3"
+        ],
+        "num_agents": 4,
+        "minPlayers": 4,
+        "lives": 1,
+        "hitPoints": 1,
+        "mapPath": "arena",
+        "fogOfWar": false,
+        "fastMode": true,
+        "showPlayerLabels": false,
+        "seed": 679961,
+        "maxTicks": 2304,
+        "maxGames": 2,
+        "turnTicks": 96,
+        "turnBudgetMs": 7000,
+        "attempt1Ms": 4500,
+        "retryMs": 2000,
+        "turnSpacingMs": 9000,
+        "wallClockBudgetSeconds": 690,
+        "lobbyJoinTimeoutTicks": 2400,
+        "startWaitTicks": 120,
+        "gameOverTicks": 72,
+        "zombieHp": 2,
+        "zombieSpeed": 384,
+        "zombieReach": 26,
+        "zombieLungePx": 90,
+        "zombieStuckTicks": 24,
+        "zombieSpawnX": 1178,
+        "gateX": 40,
+        "spawnStartPerMille": 12,
+        "spawnMaxPerMille": 72,
+        "spawnSaturateTicks": 1920,
+        "spawnCapAlive": 40,
+        "knightReach": 52,
+        "knightArcBrads": 32,
+        "knightDamage": 2,
+        "knightCooldown": 18,
+        "swingTicks": 4,
+        "archerSpeedPct": 85,
+        "arrowSpeed": 3072,
+        "arrowRange": 528,
+        "arrowLifeTicks": 44,
+        "arrowDamage": 1,
+        "arrowCooldown": 12,
+        "arrowHitRadius": 14,
+        "archerRange": 460,
+        "roleStandoff": 300,
+        "screenStandoff": 120,
+        "archerPanicPx": 150,
+        "closeCallPx": 200,
+        "clearBonus": 20,
+        "roundTarget": 90,
+        "creditEpsilonPerMille": 4
+      }
+    },
+    {
+      "id": "horde-tough",
+      "name": "Horde — armoured dead",
+      "description": "Three hit points per zombie: a mace no longer kills in one blow and an archer needs three arrows. Same seat count, same clock.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Knight A"
+          },
+          {
+            "name": "Knight B"
+          },
+          {
+            "name": "Archer A"
+          },
+          {
+            "name": "Archer B"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "red"
+          }
+        ],
+        "roles": [
+          "knight",
+          "knight",
+          "archer",
+          "archer"
+        ],
+        "tokens": [
+          "t0",
+          "t1",
+          "t2",
+          "t3"
+        ],
+        "num_agents": 4,
+        "minPlayers": 4,
+        "lives": 1,
+        "hitPoints": 1,
+        "mapPath": "arena",
+        "fogOfWar": false,
+        "fastMode": true,
+        "showPlayerLabels": false,
+        "seed": 679961,
+        "maxTicks": 2304,
+        "maxGames": 2,
+        "turnTicks": 96,
+        "turnBudgetMs": 7000,
+        "attempt1Ms": 4500,
+        "retryMs": 2000,
+        "turnSpacingMs": 9000,
+        "wallClockBudgetSeconds": 690,
+        "lobbyJoinTimeoutTicks": 2400,
+        "startWaitTicks": 120,
+        "gameOverTicks": 72,
+        "zombieHp": 3,
+        "zombieSpeed": 384,
+        "zombieReach": 26,
+        "zombieLungePx": 90,
+        "zombieStuckTicks": 24,
+        "zombieSpawnX": 1178,
+        "gateX": 40,
+        "spawnStartPerMille": 12,
+        "spawnMaxPerMille": 50,
+        "spawnSaturateTicks": 1920,
+        "spawnCapAlive": 40,
+        "knightReach": 52,
+        "knightArcBrads": 32,
+        "knightDamage": 2,
+        "knightCooldown": 18,
+        "swingTicks": 4,
+        "archerSpeedPct": 85,
+        "arrowSpeed": 3072,
+        "arrowRange": 528,
+        "arrowLifeTicks": 44,
+        "arrowDamage": 1,
+        "arrowCooldown": 12,
+        "arrowHitRadius": 14,
+        "archerRange": 460,
+        "roleStandoff": 300,
+        "screenStandoff": 120,
+        "archerPanicPx": 150,
+        "closeCallPx": 200,
+        "clearBonus": 20,
+        "roundTarget": 90,
+        "creditEpsilonPerMille": 4
+      }
+    }
+  ],
+  "certification": {
+    "players": [
+      {
+        "player_id": "baseline"
+      },
+      {
+        "player_id": "baseline"
+      },
+      {
+        "player_id": "baseline"
+      },
+      {
+        "player_id": "baseline"
+      }
+    ],
+    "game_config": {
+      "players": [
+        {
+          "name": "Knight A"
+        },
+        {
+          "name": "Knight B"
+        },
+        {
+          "name": "Archer A"
+        },
+        {
+          "name": "Archer B"
+        }
+      ],
+      "slots": [
+        {
+          "team": "red"
+        },
+        {
+          "team": "red"
+        },
+        {
+          "team": "red"
+        },
+        {
+          "team": "red"
+        }
+      ],
+      "roles": [
+        "knight",
+        "knight",
+        "archer",
+        "archer"
+      ],
+      "tokens": [
+        "t0",
+        "t1",
+        "t2",
+        "t3"
+      ],
+      "num_agents": 4,
+      "minPlayers": 4,
+      "lives": 1,
+      "hitPoints": 1,
+      "seed": 679961,
+      "mapPath": "arena",
+      "fogOfWar": false,
+      "maxTicks": 600,
+      "maxGames": 2,
+      "turnTicks": 96,
+      "turnBudgetMs": 7000,
+      "attempt1Ms": 4500,
+      "retryMs": 2000,
+      "turnSpacingMs": 0,
+      "wallClockBudgetSeconds": 180,
+      "lobbyJoinTimeoutTicks": 1440,
+      "startWaitTicks": 0,
+      "gameOverTicks": 24,
+      "spawnStartPerMille": 40,
+      "spawnSaturateTicks": 480,
+      "fastMode": true,
+      "showPlayerLabels": false
+    }
+  }
+}

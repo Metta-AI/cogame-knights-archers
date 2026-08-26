@@ -1,0 +1,8 @@
+services:
+  knights_archers:
+    image: coworld-knights-archers:latest
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+      network: host

@@ -1,0 +1,36 @@
+{
+  "num_agents": 4,
+  "minPlayers": 4,
+  "maxTicks": 2304,
+  "maxGames": 2,
+  "turnTicks": 96,
+  "turnBudgetMs": 7000,
+  "attempt1Ms": 4500,
+  "retryMs": 2000,
+  "turnSpacingMs": 9000,
+  "wallClockBudgetSeconds": 690,
+  "lobbyJoinTimeoutTicks": 2400,
+  "startWaitTicks": 120,
+  "gameOverTicks": 72,
+  "mapPath": "arena",
+  "fogOfWar": false,
+  "fastMode": true,
+  "showPlayerLabels": false,
+  "lives": 1,
+  "hitPoints": 1,
+  "seed": 679961,
+  "roles": ["knight", "knight", "archer", "archer"],
+  "tokens": ["0xBADA55_0", "0xBADA55_1", "0xBADA55_2", "0xBADA55_3"],
+  "players": [
+    {"name": "Knight A"},
+    {"name": "Knight B"},
+    {"name": "Archer A"},
+    {"name": "Archer B"}
+  ],
+  "slots": [
+    {"team": "red"},
+    {"team": "red"},
+    {"team": "red"},
+    {"team": "red"}
+  ]
+}

@@ -1,0 +1,31 @@
+[
+  {
+    "name": "knights-archers-warden",
+    "run": "/bin/knights-archers-player",
+    "env": {
+      "PLAYER_PROMPT": "Hold a LINE, do not chase. Pick your lane from your own y position: if you are north of y=330 you own the north half, otherwise the south half, and you fight only the zombies whose y is in your half unless nobody else can reach one.\nIf you are a KNIGHT: your standing order is \"intercept\". Take the zombie in your half with the smallest gate_px. Say its id, so the other knight takes a different one. Never let a zombie inside 400 gate_px while you are alive and idle - a zombie past 400 is thirty seconds from ending the wave and nothing else you do matters more. Only use \"fall_back\" when three or more zombies are within 120 pixels of you at once: you cannot swing them all, and a dead knight ends the wave for everybody. Retreat to [200, your own y], then intercept again.\nIf you are an ARCHER: your standing order is \"focus\", targeting the zombie in your half with the smallest gate_px, and you stand between 300 and 450 pixels from it. If anything is within 200 pixels of you, switch to \"fall_back\" toward [120, your own y] for one turn - you are dead if it touches you and you are worth two knights' worth of kills over a whole wave. When your half is empty, use \"hold\" at [500, your own y] facing east and let them come to you.\nWhen the pressure block says alive is 25 or more, everybody stops lane discipline: knights \"screen\" the leader, archers \"focus\" the leader, and you say \"wall\"."
+    }
+  },
+  {
+    "name": "knights-archers-volley",
+    "run": "/bin/knights-archers-player",
+    "env": {
+      "PLAYER_PROMPT": "Kill the leader first, together, and let the rest walk. The leader is the zombie with the smallest gate_px in the whole pressure block; every turn, everyone's target is derived from it.\nIf you are an ARCHER: give \"focus\" with target the leader's position, every turn, without exception. Two archers on one zombie is two arrows in the same second and that is a kill; two archers on two zombies is two wounded zombies and no kill. Stand at 350 to 500 pixels and never move toward the leader if that would put you inside 250 pixels of ANY zombie - use \"fall_back\" toward the gate instead and shoot from further out. Distance is your whole role.\nIf you are a KNIGHT: give \"screen\" with target the leader every turn while the leader is inside 600 gate_px, so you are standing between it and the gate and the archers are shooting past you into its face. When the leader is further out than 600 gate_px, switch to \"intercept\" on the SECOND-closest zombie instead - the archers have the leader, and your job is to stop the next one becoming it. Say which one you took.\nNobody ever uses \"regroup\" while a zombie is inside 300 gate_px. When the board is clear of anything inside 700 gate_px, both knights \"hold\" at [560, 240] and [560, 420] and both archers \"hold\" at [300, 240] and [300, 420]: that is the choke, and re-forming it between rushes is how you survive the second half of the wave when the spawn rate doubles."
+    },
+    "player": "ply_bac48eb1-662e-44f8-973d-f3e016dccf5d"
+  },
+  {
+    "name": "knights-archers-phalanx",
+    "run": "/bin/knights-archers-player",
+    "env": {
+      "PLAYER_SCRIPTED": "phalanx"
+    }
+  },
+  {
+    "name": "knights-archers-stand",
+    "run": "/bin/knights-archers-player",
+    "env": {
+      "PLAYER_SCRIPTED": "stand"
+    }
+  }
+]
