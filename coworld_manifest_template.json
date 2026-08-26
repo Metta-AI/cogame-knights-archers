@@ -714,12 +714,6 @@
           "archer",
           "archer"
         ],
-        "tokens": [
-          "t0",
-          "t1",
-          "t2",
-          "t3"
-        ],
         "num_agents": 4,
         "minPlayers": 4,
         "lives": 1,
@@ -811,12 +805,6 @@
           "knight",
           "archer",
           "archer"
-        ],
-        "tokens": [
-          "t0",
-          "t1",
-          "t2",
-          "t3"
         ],
         "num_agents": 4,
         "minPlayers": 4,
@@ -910,12 +898,6 @@
           "archer",
           "archer"
         ],
-        "tokens": [
-          "t0",
-          "t1",
-          "t2",
-          "t3"
-        ],
         "num_agents": 4,
         "minPlayers": 4,
         "lives": 1,
@@ -1007,12 +989,6 @@
           "knight",
           "archer",
           "archer"
-        ],
-        "tokens": [
-          "t0",
-          "t1",
-          "t2",
-          "t3"
         ],
         "num_agents": 4,
         "minPlayers": 4,
@@ -1117,12 +1093,6 @@
         "knight",
         "archer",
         "archer"
-      ],
-      "tokens": [
-        "t0",
-        "t1",
-        "t2",
-        "t3"
       ],
       "num_agents": 4,
       "minPlayers": 4,

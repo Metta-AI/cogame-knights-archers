@@ -28,7 +28,10 @@ block numAgentsIsFourEverywhere:
     check(cfg["roles"].len == 4, "every variant declares four roles")
     check(cfg["slots"].len == 4, "every variant declares four slots")
     check(cfg["players"].len == 4, "every variant names four players")
-    check(cfg["tokens"].len == 4, "every variant carries four tokens")
+    ## The runner injects the join tokens; `coworld certify` rejects a
+    ## game_config that carries them ("game_config must not include
+    ## runner-managed tokens", release 0.1.0).
+    check(not cfg.hasKey("tokens"), "no variant may carry runner-managed tokens")
     ## 60 % of the assumed 1200 s episodeTimeoutSeconds is 720.
     check(cfg["wallClockBudgetSeconds"].getInt() <= 720,
       "variant " & variant["id"].getStr() & " overruns 60% of the budget")
@@ -39,6 +42,8 @@ block numAgentsIsFourEverywhere:
     "certification.players must seat exactly four")
   check(cert["game_config"]["players"].len == 4,
     "certification.game_config.players must name four seats")
+  check(not cert["game_config"].hasKey("tokens"),
+    "the cert fixture must not carry runner-managed tokens")
   ## Every DECLARED player must occupy a certification slot (the raid 0.1.2
   ## `players_missing` scar).
   var declared: seq[string]

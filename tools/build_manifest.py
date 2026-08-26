@@ -26,12 +26,15 @@ SEAT_NAMES = ["Knight A", "Knight B", "Archer A", "Archer B"]
 SLOTS = [{"team": "red"} for _ in range(4)]
 ROLES = ["knight", "knight", "archer", "archer"]
 
+# `tokens` is declared in config_schema but never set in a variant or the cert
+# fixture: the runner injects the join tokens, and `coworld certify` rejects a
+# game_config that carries them ("game_config must not include runner-managed
+# tokens").
 def variant_config(**over):
     c = {
         "players": [{"name": n} for n in SEAT_NAMES],
         "slots": list(SLOTS),
         "roles": list(ROLES),
-        "tokens": ["t0", "t1", "t2", "t3"],
         "num_agents": 4,
         "minPlayers": 4,
         "lives": 1,
@@ -191,7 +194,6 @@ cert_config = {
     "players": [{"name": n} for n in SEAT_NAMES],
     "slots": list(SLOTS),
     "roles": list(ROLES),
-    "tokens": ["t0", "t1", "t2", "t3"],
     "num_agents": 4,
     "minPlayers": 4,
     "lives": 1,
