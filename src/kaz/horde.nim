@@ -202,6 +202,18 @@ proc installHordeField*(sim: var SimServer) =
     let d = sim.gateDistPx(spawnX, y)
     if d > sim.spawnGateDist:
       sim.spawnGateDist = d
+  ## THE MAP-INSTALL ASSERTION (design.md:139). A breach column with too few
+  ## clear, gate-reachable rows is not a knights-archers map: the horde would
+  ## arrive in a single file down one lane, or -- with none at all --
+  ## `spawnOneZombie` would have nowhere to put a body. It was previously
+  ## checked only by tests/test_horde.nim (r1 review N8), which says nothing
+  ## about a variant that installs a different map. This is install time, once
+  ## per map, on a pure function of the mapSpec: it can only fire on a map that
+  ## could never be played.
+  if sim.spawnRows.len < MinSpawnRows:
+    raise newException(SimGuardError,
+      "map install: the breach column has " & $sim.spawnRows.len &
+      " clear gate-reachable spawn rows, want at least " & $MinSpawnRows)
 
 proc resetHorde*(sim: var SimServer) =
   ## Clears the horde, the arrows and every per-wave counter. Called from
