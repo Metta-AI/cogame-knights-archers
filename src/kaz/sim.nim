@@ -422,10 +422,9 @@ proc startGame*(sim: var SimServer) =
   sim.resetShields()
   sim.resetSprayPaints()
   sim.resetBarriers()
-  # Paintball: the can is issued for good, the hearts leave play, and the
-  # floor starts clean. Each GAME of the episode is an independent board.
+  # The can is issued for good, the hearts leave play, and the floor starts
+  # clean. Each GAME of the episode is an independent board.
   sim.retireHearts()
-  sim.resetHorde()
   for i in 0 ..< sim.players.len:
     sim.players[i].arcTicksLeft = 0
     sim.players[i].arcAimBrads = -1
