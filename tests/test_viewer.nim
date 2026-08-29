@@ -21,10 +21,12 @@ let
   chrome = readFile("client/chrome_common.js")
   core = readFile("client/broadcast_core.js")
 
-const ChromeCommonDigest = "80ea4eb19cee21cb61fb1f009f1f45ab"
-  ## coworld-ctf's client/chrome_common.js, BYTE FOR BYTE. Everything
-  ## knights-archers adds lives in the appended game block; nothing in this
-  ## file is edited or reformatted, and this pin is what enforces that.
+const ChromeCommonDigest = "dfc8b23e2d3e483be8136075e092b167"
+  ## coworld-ctf's client/chrome_common.js plus the fleet-wide replay
+  ## transport patch (0.5x speed chip + the game's own KAZ_WIRE global).
+  ## Everything else knights-archers adds lives in the appended game block;
+  ## the file is otherwise NOT edited and NOT reformatted, and this pin is
+  ## what enforces that.
 
 block theSharedChromeIsByteIdentical:
   let digest = getMD5(chrome)

@@ -91,10 +91,13 @@ broadcast frame and the results.
 
 ## The viewer chrome is the starter's
 
-`client/chrome_common.js` is **byte-identical** to coworld-ctf's (pinned by
-digest in `tests/test_viewer.nim`); `client/broadcast_core.js` differs in
-exactly the `KAZ_WIRE` identifier (also pinned); `client/replay_broadcast.html`
-is the starter's page with ONE appended game block under a banner comment.
+`client/chrome_common.js` is coworld-ctf's copy plus the fleet-wide replay
+transport patch — the 0.5x speed chip and the game's own `KAZ_WIRE` global
+(the inherited `CTF_WIRE` lookup never resolved here) — and is otherwise
+unedited (pinned by digest in `tests/test_viewer.nim`);
+`client/broadcast_core.js` differs in exactly the `KAZ_WIRE` identifier (also
+pinned); `client/replay_broadcast.html` is the starter's page with ONE
+appended game block under a banner comment.
 
 - Do not declare a top-level `function markBeat` (or any other chrome alias) in
   the appended block: a hoisted declaration shadows
