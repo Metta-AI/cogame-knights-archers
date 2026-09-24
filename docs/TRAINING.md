@@ -51,7 +51,6 @@ The local ten-episode exports contained 1,244 train and 312 validation
 examples for Default; 572 and 192 for Horde Short; 1,060 and 324 for Horde
 Hard; and 472 and 76 for Horde Tough. These examples distill a scripted
 teacher. They do not establish stronger league play.
-=======
 
 One CPU optimizer step with a local tiny model and `--max-length 4096`
 included every exported example in each variant. Validation loss on four
