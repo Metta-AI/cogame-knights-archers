@@ -1,3 +1,24 @@
+# Training Knights & Archers
+
+The persistent numeric bridge covers all four certified variants. It uses
+each seat's exact hosted `seatViewJson`, exposes a fixed 537-feature encoding,
+and passes seven action heads through the production directive parser and
+controller. All four views and scripted teacher actions are frozen before a
+turn's orders are applied. An episode includes every configured wave.
+
+```sh
+nimby sync nimby.lock
+nim c -d:release --path:src -o:/tmp/knights-archers-train-bridge tools/train_bridge.nim
+python3 tools/test_train_bridge.py /tmp/knights-archers-train-bridge
+```
+
+For Metta RL, call `recipes.external.coworld_metta_rl.train`. For native
+PufferLib, call `recipes.external.coworld.train`. Pass a command of the form
+`[/tmp/knights-archers-train-bridge, /path/to/coworld_manifest_template.json,
+default]`, choose one of the four variants, and set `players=4`. Always set a
+finite timestep limit. The bridge also provides the full seat view as a
+semantic observation for Observatory consumers.
+
 # Metta post-training data
 
 The native simulator and published `phalanx` policy export supervised
