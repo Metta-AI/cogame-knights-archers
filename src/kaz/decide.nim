@@ -3,42 +3,38 @@
 ##
 ## Cadence: one turn every `turnTicks` (96 ticks = 4.0 s of sim time), 24 turns
 ## per wave, 48 per episode. At each turn the server builds ALL FOUR seats'
-## request bodies and issues them as ONE PARALLEL BATCH — knights-archers is a
-## simultaneous-decision game, so querying seats one after another would
-## quadruple the wall clock for no gain. One call per seat per turn; an episode
-## is at most 4 x 48 = 192 calls, at most 4 in flight.
+## request bodies and sends them as ONE PARALLEL BATCH to the registered player
+## sockets. Knights-archers is a simultaneous-decision game, so querying seats
+## one after another would quadruple the wall clock for no gain. An episode has
+## at most 4 x 48 = 192 player decisions, at most 4 in flight.
 ##
 ## DEGRADE, NEVER HANG. Every wait here is bounded: attempt 1 gets
 ## `attempt1Ms`, the single retry gets `retryMs`, and the whole turn is
 ## wrapped in a monotonic `turnBudgetMs` deadline. A provider throttle with no
-## other candidate model skips the retry outright (it cannot land) and fails
-## fast to the scripted layer for that turn. On a second failure the seat plays
+## player can report a fallback immediately. On a second failure the seat plays
 ## the `phalanx` scripted directive for that turn and a `fallback` record names
 ## the cause. No failure mode leaves a hero unactuated: the control layer
 ## always has a directive — this turn's, else last turn's, else `phalanx`'s.
 ##
-## THE RATE FLOOR. The Bedrock sidecar caps 30 requests/minute PER EPISODE, and
-## four seats per turn would blow straight through it at any fast cadence. A
+## THE RATE FLOOR. Hosted inference can cap requests per minute per episode, and
+## four seats per turn would exceed that at any fast cadence. A
 ## `turnSpacingMs` = 9000 wall-clock floor between the STARTS of consecutive
 ## batches holds the episode at 4 x 60 / 9 = 26.7 req/min.
 
 import
-  std/[json, monotimes, os, strutils, times],
-  curly,
-  sim, control, directives, baselines, llm
+  std/[json, monotimes, os, times],
+  sim, control, directives, baselines
 
 type
   SeatPolicy* = object
     ## What one seat registered as. A seat that registers with neither field
     ## — or never registers at all — is `phalanx`.
     isLlm*: bool
-    prompt*: string
     baseline*: Baseline
     label*: string
     registered*: bool
 
   DecisionEngine* = object
-    client*: LlmClient
     ctl*: ControlState
     seats*: seq[SeatPolicy]
     directives*: seq[SquadDirective]
@@ -57,8 +53,10 @@ type
     markTeamKills*: int
     markSpawned*: int
 
+  DecisionExchange* = proc(requests: seq[JsonNode], timeoutMs: int):
+    seq[string] {.closure.}
+
 proc initDecisionEngine*(sim: SimServer): DecisionEngine =
-  result.client = newLlmClient(sim.config)
   result.ctl = initControlState(sim)
   result.seats = newSeq[SeatPolicy](sim.seatCount())
   result.directives = newSeq[SquadDirective](sim.seatCount())
@@ -350,19 +348,16 @@ proc turn*(
   engine: var DecisionEngine,
   sim: SimServer,
   turnIndex, turnsPerGame: int,
-  elapsedSeconds: int
+  elapsedSeconds: int,
+  exchange: DecisionExchange
 ): seq[string] =
   ## Runs ONE decision turn and installs each seat's directive. Returns the
-  ## replay chat records this turn produced. Never raises: every failure path
-  ## ends in a legal directive.
+  ## replay chat records this turn produced. Invalid or missing player replies
+  ## end in a legal directive.
   let
     wave = sim.gameIndex + 1
     budget = initDuration(milliseconds = max(1, sim.config.turnBudgetMs))
     turnStart = getMonoTime()
-  ## Throttle state is PER TURN: a daily-token 429 on turn k says nothing
-  ## about turn k+1 (the sidecar's window may have rolled), so the flag is
-  ## cleared here and only suppresses this turn's retry.
-  engine.client.throttled = false
 
   # --- budget guard: settle EARLY rather than overrun -----------------------
   # If two more full turns would not fit inside the engine's own wall-clock
@@ -381,8 +376,7 @@ proc turn*(
   # --- which seats need a call? --------------------------------------------
   var open: seq[int]
   for seat in 0 ..< engine.seats.len:
-    if engine.seats[seat].isLlm and not engine.llmOff and
-        not engine.client.disabled:
+    if engine.seats[seat].isLlm and not engine.llmOff:
       open.add(seat)
     elif engine.seats[seat].isLlm:
       # An LLM seat that CANNOT call the LLM this turn is a fallback, not a
@@ -398,7 +392,7 @@ proc turn*(
       directive.source = dsFallback
       engine.directives[seat] = directive
       engine.haveDirective[seat] = true
-      let cause = if engine.llmOff: "budget_guard" else: "no_credentials"
+      let cause = "budget_guard"
       result.add(fallbackRecord(wave, turnIndex, seat, 1, cause,
         "the LLM is unavailable for this turn; playing phalanx"))
       echo "knights-archers llm: seat ", seat, " falling back to phalanx (", cause,
@@ -411,8 +405,8 @@ proc turn*(
       engine.haveDirective[seat] = true
 
   # --- the rate floor -------------------------------------------------------
-  # The Bedrock sidecar caps 30 requests/minute PER EPISODE, and two seats at
-  # a fast turn sit right on it. Hold the START of consecutive batches
+  # Hosted inference may cap requests per minute per episode. Hold the start
+  # of consecutive batches
   # `turnSpacingMs` apart, which pins the episode at <= 24 req/min. The cert
   # fixture sets it to 0, so offline runs pay nothing.
   if open.len > 0 and engine.batchStarted and sim.config.turnSpacingMs > 0:
@@ -426,8 +420,6 @@ proc turn*(
   # --- up to two PARALLEL batches ------------------------------------------
   var attempt = 0
   while open.len > 0 and attempt < 2:
-    if engine.client.disabled:
-      break
     if getMonoTime() - turnStart >= budget:
       for seat in open:
         result.add(fallbackRecord(
@@ -436,42 +428,56 @@ proc turn*(
       break
     let deadlineMs =
       if attempt == 0: sim.config.attempt1Ms else: sim.config.retryMs
-    var batch: RequestBatch
+    var requests: seq[JsonNode]
     for seat in open:
-      var user = engine.seatViewJson(sim, seat, turnIndex, turnsPerGame)
-      if attempt > 0:
-        user.add("\n\nYour previous reply was not usable. Reply with ONLY " &
-          "the JSON object described above, starting with '{', with one " &
-          "\"cogs\" entry per cog you command.")
-      let request = engine.client.requestFor(
-        systemPromptFor(sim.roleForSeat(seat)),
-        userMessage(engine.seats[seat].prompt, user))
-      batch.post(request.url, request.headers, request.body, $seat)
+      requests.add(%*{
+        "type": "decision",
+        "protocol": "kaz.player.v2",
+        "id": (sim.gameIndex + 1) * 100_000 + turnIndex * 10 + attempt,
+        "slot": seat,
+        "attempt": attempt + 1,
+        "timeout_ms": deadlineMs,
+        "view": parseJson(engine.seatViewJson(
+          sim, seat, turnIndex, turnsPerGame))
+      })
     let started = getMonoTime()
-    ## curly hands the deadline to CURLOPT_TIMEOUT, whose granularity is
-    ## WHOLE SECONDS. This CEILS rather than floors: the design pins
-    ## `attempt1Ms: 4500`, and flooring would have run it at 4 s against a
-    ## sidecar whose median call measures ~4.6 s, so every "successful" LLM
-    ## directive would have been the deadline answering rather than the model
-    ## (paintball 0.1.2 shipped exactly that bug). Ceiling 4500 -> 5 s and
-    ## 2000 -> 2 s keeps the worst case at 7 s, exactly the turnBudgetMs cap.
-    let responses = engine.client.curl.makeRequests(
-      batch, max(1, (deadlineMs + 999) div 1000))
+    let responses = exchange(requests,
+      max(1, (deadlineMs + 999) div 1000) * 1000)
     let latency = (getMonoTime() - started).inMilliseconds.int
     var stillOpen: seq[int]
     for position, seat in open:
-      var cause = "parse_error"
+      var cause = "timeout"
       try:
-        let text = engine.client.textOf(
-          responses[position].response, responses[position].error,
-          batch[position].url)
+        if responses[position].len == 0:
+          raise newException(ValueError, "player action timed out")
+        cause = "parse_error"
+        let response = parseJson(responses[position])
+        if response["type"].getStr() != "action" or
+            response["protocol"].getStr() != "kaz.player.v2":
+          raise newException(ValueError, "wrong player action protocol")
+        if response["id"].getInt() != requests[position]["id"].getInt():
+          raise newException(ValueError, "player action id mismatch")
+        if response{"source"}.getStr() == "fallback":
+          let reported = response{"cause"}.getStr()
+          let why = if reported in ["no_credentials", "throttled",
+              "transport_error", "timeout", "parse_error"]:
+              reported else: "parse_error"
+          result.add(fallbackRecord(wave, turnIndex, seat, attempt + 1,
+            why, "player policy reported fallback"))
+          var fallback = engine.phalanxFor(sim, sim.commandedCogs(seat))
+          fallback.source = dsFallback
+          engine.directives[seat] = fallback
+          engine.haveDirective[seat] = true
+          continue
+        if response{"source"}.getStr() != "llm":
+          raise newException(ValueError, "player action source must be llm")
         let commanded = sim.commandedCogs(seat)
         var ids: seq[string]
         for cogIndex in commanded:
           ids.add(sim.cogAlias(cogIndex))
         let gate = gateCentre(sim)
         var directive = parseSquadDirective(
-          extractJsonObject(text), ids, commanded,
+          response["action"], ids, commanded,
           gate.x, gate.y, MapWidth - 1, MapHeight - 1)
         directive.source = dsLlm
         directive.latencyMs = latency
@@ -479,15 +485,6 @@ proc turn*(
         engine.directives[seat] = directive
         engine.haveDirective[seat] = true
       except CatchableError as error:
-        if responses[position].error.len > 0:
-          cause = (if "timeout" in responses[position].error.toLowerAscii():
-                     "timeout" else: "transport_error")
-        elif error.msg.startsWith("llm throttled"):
-          ## Name the throttle for what it is. Reporting a 429 as
-          ## `parse_error` is what made the hosted log unreadable: 205
-          ## "falling back (parse_error)" lines for an episode whose only
-          ## fault was a daily-token cap.
-          cause = "throttled"
         result.add(fallbackRecord(
           wave, turnIndex, seat, attempt + 1, cause, error.msg))
         echo "knights-archers llm: seat ", seat, " attempt ", attempt + 1,
@@ -495,14 +492,6 @@ proc turn*(
         stillOpen.add(seat)
     open = stillOpen
     inc attempt
-    if engine.client.throttled and open.len > 0:
-      # FAIL FAST. The only model left answered 429, so the retry batch would
-      # be refused the same way: spend the rest of the turn on the scripted
-      # layer instead of on a call that cannot land. Bounded, and recorded as
-      # a `fallback` with cause `throttled` by the block below.
-      echo "knights-archers llm: provider throttled with no other candidate; ",
-        open.len, " seat(s) fall back for turn ", turnIndex
-      break
 
   # --- anything still open plays phalanx for this turn ---------------------
   for seat in open:
@@ -510,12 +499,7 @@ proc turn*(
     directive.source = dsFallback
     engine.directives[seat] = directive
     engine.haveDirective[seat] = true
-    let cause =
-      if engine.client.disabled or engine.client.transport == ltNone:
-        "no_credentials"
-      elif engine.llmOff: "budget_guard"
-      elif engine.client.throttled: "throttled"
-      else: "parse_error"
+    let cause = if engine.llmOff: "budget_guard" else: "parse_error"
     result.add(fallbackRecord(wave, turnIndex, seat, 2, cause,
       "seat fell back to the phalanx directive"))
     ## "falling back" is the phrase phase 60 greps the GAME log for.

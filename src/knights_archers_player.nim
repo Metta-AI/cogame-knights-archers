@@ -1,11 +1,6 @@
-## The knights-archers player container: a policy is just a prompt.
+## Scripted, prompt, and Jev policies over private squad observations.
 ##
-## This process is DELIBERATELY thin. It connects to its seat, sends ONE
-## Sprite v1 chat message carrying its registration, and then only receives.
-## Every decision happens inside the GAME server, because that is the only
-## container the platform injects the `anthropic_api_key` coworld secret
-## into, and because keeping the control layer server-side is what makes the
-## recorded mask log reproducible with no network in the loop.
+## The game compiles accepted directives into replayed actuator masks.
 ##
 ##   PLAYER_PROMPT        a strategy in plain English -> this seat is an LLM seat
 ##   PLAYER_SCRIPTED      phalanx | stand           -> this seat is scripted
@@ -20,7 +15,8 @@
 import
   std/[json, options, os, strutils],
   bitworld/spriteprotocol,
-  whisky
+  curly, whisky,
+  kaz/[directives, jev_policy, llm]
 
 const
   ConnectAttempts = 240      ## 240 x 500 ms = 2 minutes of dialling.
@@ -30,13 +26,10 @@ const
   ReconnectAttempts = 6      ## 6 x 500 ms of re-dialling after a live socket
                              ## dies, before accepting the game is gone.
 
-proc registrationBlob(prompt, scripted, policy: string): string =
-  ## The one registration message. `scripted` is JSON null when the seat is
-  ## an LLM seat, so the server can tell "no baseline named" from "phalanx
-  ## named explicitly".
+proc registrationBlob(kind, scripted, policy: string): string =
   var node = %*{
     "type": "register",
-    "prompt": prompt,
+    "kind": kind,
     "policy": policy
   }
   if scripted.len > 0:
@@ -61,14 +54,17 @@ when isMainModule:
   let
     prompt = getEnv("PLAYER_PROMPT").strip()
     scripted = getEnv("PLAYER_SCRIPTED").strip()
+    jev = getEnv("PLAYER_JEV") == "1"
+    kind = if jev: "jev" elif prompt.len > 0: "prompt" else: "scripted"
     label = block:
       let explicit = getEnv("PLAYER_POLICY_LABEL").strip()
       if explicit.len > 0: explicit
+      elif jev: "jev"
       elif prompt.len > 0: "prompt"
       elif scripted.len > 0: scripted
       else: "phalanx"
-  echo "knights-archers player: kind=",
-    (if prompt.len > 0: "llm" else: "scripted"),
+  let client = if kind == "prompt": newLlmClient() else: nil
+  echo "knights-archers player: kind=", kind,
     " baseline=", (if scripted.len > 0: scripted else: "phalanx"),
     " label=", label
 
@@ -113,17 +109,48 @@ when isMainModule:
   while true:
     var sessionFrames = 0
     try:
-      socket.send(registrationBlob(prompt, scripted, label), BinaryMessage)
+      socket.send(registrationBlob(kind, scripted, label), BinaryMessage)
       var resends = 0
       while true:
         let received = socket.receiveMessage()
         if received.isNone:
           continue                    ## a read timeout, not a closed socket
+        let message = received.get()
+        if message.kind == TextMessage:
+          let decision = parseJson(message.data)
+          if decision{"type"}.getStr() == "decision":
+            var reply = %*{
+              "type": "action",
+              "protocol": "kaz.player.v2",
+              "id": decision["id"],
+              "source": "llm"
+            }
+            let view = decision["view"]
+            let timeoutSeconds = max(1,
+              (decision["timeout_ms"].getInt() + 999) div 1000)
+            if (jev and not jevConfigured()) or
+                (kind == "prompt" and client.disabled):
+              reply["source"] = %"fallback"
+              reply["cause"] = %"no_credentials"
+            elif jev:
+              reply["action"] = chooseJevAction(view, timeoutSeconds)
+            else:
+              let request = client.requestFor(
+                systemPromptFor(view["you"]["role"].getStr()),
+                userMessage(prompt, $view))
+              let response = client.curl.post(request.url, request.headers,
+                request.body, timeoutSeconds)
+              reply["action"] = extractJsonObject(
+                client.textOf(response, "", request.url))
+            socket.send($reply)
+          continue
+        if message.kind != BinaryMessage:
+          continue
         inc sessionFrames
         if resends < RegistrationResends and
             sessionFrames mod ResendEveryFrames == 1:
           inc resends
-          socket.send(registrationBlob(prompt, scripted, label), BinaryMessage)
+          socket.send(registrationBlob(kind, scripted, label), BinaryMessage)
         socket.send(readyBlob(), BinaryMessage)
     except CatchableError as error:
       echo "knights-archers player: socket closed (", error.msg, ")"
