@@ -38,9 +38,8 @@
 #                              job loads it in a real browser -- that is the
 #                              only replay in CI that is known to be readable
 #                              by this game's own viewer.
-#   ANTHROPIC_API_KEY          if set, forwarded to the game so the LLM path
-#                              is exercised; if unset the game must fall back
-#                              to its scripted baselines and still complete
+#   ANTHROPIC_API_KEY          if set, forwarded to prompt players only
+#   TYPESAFE_API_KEY           if set, forwarded to Jev players only
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -168,6 +167,10 @@ for slot in range(seats):
     env_args = []
     for key, value in (entry.get("env") or {}).items():
         env_args += ["-e", f"{key}={value}"]
+    if (entry.get("env") or {}).get("PLAYER_PROMPT") and os.environ.get("ANTHROPIC_API_KEY"):
+        env_args += ["-e", f"ANTHROPIC_API_KEY={os.environ['ANTHROPIC_API_KEY']}"]
+    if (entry.get("env") or {}).get("PLAYER_JEV") and os.environ.get("TYPESAFE_API_KEY"):
+        env_args += ["-e", f"TYPESAFE_API_KEY={os.environ['TYPESAFE_API_KEY']}"]
     for kv in extra_env:
         env_args += ["-e", kv]
     argv = list(entry.get("run") or [player_bin])
@@ -190,14 +193,6 @@ chmod 777 "${work_dir}"
 # --------------------------------------------------------------------------
 docker network create "${network}" >/dev/null
 
-game_env=()
-if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-  game_env+=(-e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}")
-  echo "ANTHROPIC_API_KEY present: the LLM path will be exercised"
-else
-  echo "no ANTHROPIC_API_KEY: the game must complete on its scripted baselines"
-fi
-
 echo "starting game container (${image} ${game_bin}) ..."
 docker run -d --name "${prefix}-game" \
   --network "${network}" --network-alias "${prefix}-game" \
@@ -207,7 +202,6 @@ docker run -d --name "${prefix}-game" \
   -e COGAME_RESULTS_URI=file:///coworld/results.json \
   -e COGAME_SAVE_REPLAY_URI=file:///coworld/replay.json \
   -e COGAME_PLAYER_FAILURE_URI=file:///coworld/player_failure.json \
-  ${game_env[@]+"${game_env[@]}"} \
   -v "${work_dir}:/coworld:rw" \
   "${image}" "${game_bin}" >/dev/null
 

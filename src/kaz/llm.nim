@@ -1,17 +1,13 @@
-## Claude-backed squad command. A policy is just a prompt: the game server
-## composes the seat's view plus that seat's PLAYER_PROMPT and asks Claude what
-## its hero does for the next 4 seconds (`turnTicks` = 96 ticks at 24 Hz; the
-## 4.5 s figure is `attempt1Ms`, the deadline on the CALL, not the cadence).
+## Claude-backed player policy. The player receives its seat view and composes
+## the PLAYER_PROMPT with it to decide its hero's next four seconds.
 ##
 ## Ported from `cogame-bullwhip/src/bullwhip/llm.nim`, behaviour for
 ## behaviour — the credential ladder, the Bedrock model rotation, the
 ## fence-tolerant JSON extraction and the rune-boundary truncation are all
 ## that file's, because they are all scar tissue from real hosted failures.
 ##
-## Knights-archers is a SIMULTANEOUS-decision game, so all FOUR seats' calls go
-## out as ONE parallel batch per turn (`curly.makeRequests`). Seats are never
-## queried sequentially: that is what keeps 48 turns inside the wall-clock
-## budget.
+## Each player makes its own model request. The game sends all seat views in
+## parallel and enforces the turn deadline.
 ##
 ## Credentials, in order of preference:
 ##   Bedrock sidecar (AWS_ENDPOINT_URL_BEDROCK_RUNTIME + AWS_BEARER_TOKEN_BEDROCK)
@@ -98,11 +94,11 @@ proc bedrockUrl(client: LlmClient): string =
   client.bedrockEndpoint & "/model/" &
     client.bedrockModels[client.bedrockModel] & "/invoke"
 
-proc newLlmClient*(config: GameConfig): LlmClient =
+proc newLlmClient*(): LlmClient =
   result = LlmClient(
-    model: (if config.model.len > 0: config.model
-            else: "claude-haiku-4-5-20251001"),
-    maxOutputTokens: max(1, config.maxOutputTokens)
+    model: getEnv("PLAYER_MODEL", "claude-haiku-4-5-20251001"),
+    maxOutputTokens: max(1, getEnv("PLAYER_MAX_OUTPUT_TOKENS",
+      $DefaultMaxOutputTokens).parseInt())
   )
   let
     bedrockEndpoint = getEnv("AWS_ENDPOINT_URL_BEDROCK_RUNTIME").strip()

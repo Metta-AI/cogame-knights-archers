@@ -30,6 +30,7 @@ type
     inputPressedMasks: Table[WebSocket, uint8]
     lastAppliedMasks: Table[WebSocket, uint8]
     chatMessages: Table[WebSocket, string]
+    actionMessages: Table[WebSocket, string]
     playerIndices: Table[WebSocket, int]
     playerAddresses: Table[WebSocket, string]
     playerSlots: Table[WebSocket, int]
@@ -284,6 +285,7 @@ proc removePlayerWebSocketState(websocket: WebSocket): int =
   appState.inputPressedMasks.del(websocket)
   appState.lastAppliedMasks.del(websocket)
   appState.chatMessages.del(websocket)
+  appState.actionMessages.del(websocket)
   appState.playerAddresses.del(websocket)
   appState.playerSlots.del(websocket)
   appState.playerTokens.del(websocket)
@@ -350,6 +352,44 @@ proc isPlayerWebSocket(websocket: WebSocket): bool =
     websocket in appState.playerViewers and
       websocket notin appState.globalViewers and
       websocket notin appState.rewardViewers
+
+proc exchangeDecisions(
+  requests: seq[JsonNode], timeoutMs: int
+): seq[string] {.gcsafe.} =
+  ## Send every private observation before waiting for any action. The one
+  ## deadline applies to the batch, so four seats remain simultaneous.
+  result = newSeq[string](requests.len)
+  var sockets = newSeq[WebSocket](requests.len)
+  var connected = newSeq[bool](requests.len)
+  {.gcsafe.}:
+    withLock appState.lock:
+      for position, request in requests:
+        let seat = request["slot"].getInt()
+        for websocket, playerIndex in appState.playerIndices.pairs:
+          if playerIndex == seat and websocket.isPlayerWebSocket():
+            sockets[position] = websocket
+            connected[position] = true
+            appState.actionMessages.del(websocket)
+            break
+    for position, websocket in sockets:
+      if connected[position]:
+        websocket.send($requests[position])
+
+    let deadline = getMonoTime() + initDuration(milliseconds = timeoutMs)
+    while getMonoTime() < deadline:
+      var pending = false
+      withLock appState.lock:
+        for position, websocket in sockets:
+          if not connected[position] or result[position].len > 0:
+            continue
+          if appState.actionMessages.hasKey(websocket):
+            result[position] = appState.actionMessages[websocket]
+            appState.actionMessages.del(websocket)
+          else:
+            pending = true
+      if not pending:
+        break
+      sleep(10)
 
 proc removeWebSocketState(websocket: WebSocket): int =
   ## Removes websocket-owned state and returns its former player index.
@@ -864,6 +904,12 @@ proc websocketHandler(
   of MessageEvent:
     if message.kind == Ping:
       websocket.send(message.data, Pong)
+    elif message.kind == TextMessage:
+      {.gcsafe.}:
+        withLock appState.lock:
+          if websocket.isPlayerWebSocket() and
+              websocket in appState.playerIndices:
+            appState.actionMessages[websocket] = message.data
     elif message.kind == BinaryMessage:
       {.gcsafe.}:
         withLock appState.lock:
@@ -1184,9 +1230,10 @@ proc declarePlayerFailure(slot: int, message: string) =
 
 proc parseRegistration(
   text: string
-): tuple[ok: bool, prompt, scripted, policy: string] =
+): tuple[ok: bool, kind, scripted, policy: string] =
   ## A seat's ONE Sprite v1 chat message, read as its registration:
-  ##   {"type":"register","prompt":"…","scripted":"holdline"|null,"policy":"…"}
+  ##   {"type":"register","kind":"prompt"|"jev"|"scripted",
+  ##    "scripted":"phalanx"|"stand"|null,"policy":"…"}
   ## Anything that is not that object is not a registration.
   result = (false, "", "", "")
   if text.len == 0 or text[0] != '{':
@@ -1199,7 +1246,7 @@ proc parseRegistration(
   if node.kind != JObject or node{"type"}.getStr() != "register":
     return
   result.ok = true
-  result.prompt = node{"prompt"}.getStr()
+  result.kind = node{"kind"}.getStr()
   if not node{"scripted"}.isNil and node{"scripted"}.kind == JString:
     result.scripted = node{"scripted"}.getStr()
   result.policy = node{"policy"}.getStr()
@@ -1726,12 +1773,11 @@ proc runServerLoop*(
               var policy = engine.seats[playerIndex]
               let firstRegistration = not policy.registered
               policy.registered = true
-              policy.prompt = registration.prompt.truncateRunes(MaxPromptRunes)
-              policy.isLlm = policy.prompt.len > 0
+              policy.isLlm = registration.kind in ["prompt", "jev"]
               policy.baseline = parseBaseline(registration.scripted)
               policy.label =
                 if registration.policy.len > 0: registration.policy
-                elif policy.isLlm: "prompt"
+                elif policy.isLlm: registration.kind
                 else: $policy.baseline
               engine.seats[playerIndex] = policy
               if playerIndex <= sim.seatPolicyKind.high:
@@ -1912,7 +1958,8 @@ proc runServerLoop*(
         lastTurnKey = turnKey
         let turnsPerGame =
           if config.maxTicks > 0: max(1, config.maxTicks div turnTicks) else: 0
-        let records = engine.turn(sim, turnIndex, turnsPerGame, elapsedSeconds)
+        let records = engine.turn(sim, turnIndex, turnsPerGame,
+          elapsedSeconds, exchangeDecisions)
         for record in records:
           replayWriter.writeChat(tickTime(sim.tickCount), 0, record)
         for seat in 0 ..< engine.directives.len:

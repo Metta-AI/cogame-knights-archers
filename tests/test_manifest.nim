@@ -92,13 +92,17 @@ block theImagePlaceholderComesFromTheComposeServiceName:
     check(player["resources"]["limits"]["cpu"].getStr() == "1",
       "the bundled player cpu limit minimum is \"1\"")
 
-block theSecretNamespaceEqualsTheGameName:
-  let
-    name = manifest["game"]["name"].getStr()
-    uri = manifest["game"]["runnable"]["env"]["ANTHROPIC_API_KEY_URI"].getStr()
-  check(name == "knights-archers", "game.name must be the slug")
-  check(uri == "secret://coworld/" & name & "/anthropic_api_key",
-    "the secret namespace must equal game.name exactly, got " & uri)
+block modelCredentialsBelongToPlayers:
+  check(manifest["game"]["name"].getStr() == "knights-archers",
+    "game.name must be the slug")
+  check(not manifest["game"]["runnable"].hasKey("env"),
+    "the game must not receive model credentials")
+  let props = manifest["game"]["config_schema"]["properties"]
+  check(not props.hasKey("model") and not props.hasKey("maxOutputTokens"),
+    "model selection belongs to player configuration")
+  for player in manifest["player"]:
+    check(not player["env"].hasKey("ANTHROPIC_API_KEY_URI"),
+      "the manifest must not bind a model secret to a bundled player")
 
 block everyArrayPropertyIsBounded:
   let props = manifest["game"]["config_schema"]["properties"]
@@ -187,7 +191,7 @@ block theCertFixtureFitsTheCertifyTimeout:
   check(cfg["maxTicks"].getInt() * cfg["maxGames"].getInt() >= 24 * 30,
     "the fixture must outlast a 30 s viewer soak")
   check(cfg["turnSpacingMs"].getInt() == 0,
-    "the fixture pays no rate floor: it never calls an LLM")
+    "the credential-free fixture pays no rate floor")
   check(cfg["wallClockBudgetSeconds"].getInt() <= 300,
     "the fixture must settle well inside the certify timeout")
 

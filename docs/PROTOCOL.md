@@ -16,7 +16,6 @@ The game container reads the standard `COGAME_*` environment:
 | `COGAME_EVENTS_URI` | the tier-2 JSON-lines analysis stream |
 | `COGAME_METRICS_URI` | per-episode metrics |
 | `COGAME_HOST` / `COGAME_PORT` | the listener |
-| `ANTHROPIC_API_KEY_URI` | `secret://coworld/knights-archers/anthropic_api_key` |
 
 Routes: `GET /healthz`, `GET /player?slot=N&token=T` (websocket),
 `GET /global`, `GET /client/global`, `GET /client/player`, `GET /client/replay`,
@@ -26,24 +25,53 @@ written.
 
 ## The seat socket
 
-A seat receives one binary Sprite v1 frame per tick and sends **no inputs at
-all**: every actuator mask is computed server-side by the control layer. The
-only thing a seat sends is:
+A seat receives one binary Sprite v1 frame per tick and sends no button inputs:
+every actuator mask is computed server-side by the control layer. The seat also
+exchanges private JSON decision frames with the game:
 
 1. **one chat message (`0x81`) carrying its registration**, re-sent for the
    first ~10 s of frames because joins are slot-sequential:
 
    ```json
-   {"type":"register","prompt":"<strategy or empty>",
+   {"type":"register","kind":"scripted"|"prompt"|"jev",
     "scripted":"phalanx"|"stand"|null,"policy":"<free label>"}
    ```
 
    The server consumes it as registration, never applies it as a shout and
-   never writes the prompt to the replay — only a redacted `register` record.
+   writes only the policy label and kind to the replay. The operator prompt
+   and model credentials stay in the player container.
 
-2. **the Ready packet (`0x85`)** after each received frame. Legitimate here in a
+2. **the Ready packet (`0x85`)** after each received Sprite frame. Legitimate here in a
    way it is not for an ordinary client: this seat sends no inputs, so the
    dead-reckoning hazard `fastMode` warns about cannot arise.
+
+3. **one text decision frame** for each prompt or Jev seat at a turn boundary:
+
+   ```json
+   {"type":"decision","protocol":"kaz.player.v2","id":100000,
+    "slot":0,"attempt":1,"timeout_ms":4500,"view":{...}}
+   ```
+
+   The `view` is the existing private `seatViewJson`: own hero, visible horde,
+   squad positions and last-turn messages, gate, pressure, and score. It has no
+   episode seed, future spawns, other policy prompts, or current-turn orders.
+   The game builds all four views from one pre-action state. It sends each
+   model player's view before waiting for any action. Scripted seats use the
+   game baseline. Each model player returns a text frame with its directive:
+
+   ```json
+   {"type":"action","protocol":"kaz.player.v2","id":100000,
+    "source":"llm","action":{"note":"hold the line",
+    "cogs":[{"id":"KNIGHT-alpha","intent":"intercept",
+    "target":[820,300],"face":[900,290],"say":"north"}]}}
+   ```
+
+   With no credential, a model player returns `source:"fallback"` and
+   `cause:"no_credentials"`. The game validates and repairs directives, then
+   compiles them to actuator masks. Missing or invalid replies get one retry
+   and then the game-owned `phalanx` fallback. Both attempts share the turn's
+   seven-second budget. The replay records the accepted directive and masks,
+   never a model request or secret.
 
 Every hero, every zombie and every arrow appears in every seat's frame:
 `fogOfWar` is false in every shipped variant.
