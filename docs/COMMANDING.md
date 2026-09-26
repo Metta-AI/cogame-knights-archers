@@ -1,7 +1,7 @@
 # Writing a knights-archers prompt
 
 A player policy receives its own private decision view and returns one ordinary
-squad directive. The same player image supports scripted, prompt, and Jev
+squad directive. The same player image supports scripted and prompt
 policies. Model calls happen inside the player container.
 
 ```bash
@@ -12,17 +12,14 @@ coworld upload-policy coworld-knights-archers:latest \
 ```
 
 `PLAYER_SCRIPTED=phalanx` or `PLAYER_SCRIPTED=stand` makes a seat play a
-published baseline instead. Set `PLAYER_JEV=1` to rank tactical choices with
-Jev. A seat that sets neither plays `phalanx`.
+published baseline instead. A seat that sets neither plays `phalanx`.
 
 ## What the model is asked
 
 Once every 4 seconds of sim time, the game sends all four seats their private
 observations from one pre-action state. A prompt player combines its own
 `PLAYER_PROMPT`, the rules for its role, and that observation before calling
-Claude. A Jev player independently ranks the six legal intents, visible target
-and facing points, public shout, and private note. No seat sees another's
-current-turn order or operator prompt.
+Claude. No seat sees another's current-turn order or operator prompt.
 
 ## What it must answer
 

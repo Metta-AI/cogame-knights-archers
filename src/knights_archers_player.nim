@@ -1,4 +1,4 @@
-## Scripted, prompt, and Jev policies over private squad observations.
+## Scripted and prompt policies over private squad observations.
 ##
 ## The game compiles accepted directives into replayed actuator masks.
 ##
@@ -16,7 +16,7 @@ import
   std/[json, options, os, strutils],
   bitworld/spriteprotocol,
   curly, whisky,
-  kaz/[directives, jev_policy, llm]
+  kaz/[directives, llm]
 
 const
   ConnectAttempts = 240      ## 240 x 500 ms = 2 minutes of dialling.
@@ -54,12 +54,10 @@ when isMainModule:
   let
     prompt = getEnv("PLAYER_PROMPT").strip()
     scripted = getEnv("PLAYER_SCRIPTED").strip()
-    jev = getEnv("PLAYER_JEV") == "1"
-    kind = if jev: "jev" elif prompt.len > 0: "prompt" else: "scripted"
+    kind = if prompt.len > 0: "prompt" else: "scripted"
     label = block:
       let explicit = getEnv("PLAYER_POLICY_LABEL").strip()
       if explicit.len > 0: explicit
-      elif jev: "jev"
       elif prompt.len > 0: "prompt"
       elif scripted.len > 0: scripted
       else: "phalanx"
@@ -128,12 +126,9 @@ when isMainModule:
             let view = decision["view"]
             let timeoutSeconds = max(1,
               (decision["timeout_ms"].getInt() + 999) div 1000)
-            if (jev and not jevConfigured()) or
-                (kind == "prompt" and client.disabled):
+            if client.disabled:
               reply["source"] = %"fallback"
               reply["cause"] = %"no_credentials"
-            elif jev:
-              reply["action"] = chooseJevAction(view, timeoutSeconds)
             else:
               let request = client.requestFor(
                 systemPromptFor(view["you"]["role"].getStr()),

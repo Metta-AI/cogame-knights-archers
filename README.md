@@ -15,8 +15,8 @@ Everybody's score is the same score. It is a fully cooperative game: the whole
 per-seat kill-credit range is 0.004, which is smaller than one extra team kill
 (1/180), so killing more than your share is worth nothing if the line breaks.
 
-A player policy chooses a directive from its private observation. Scripted,
-prompt, and Jev policies use the same action interface; see
+A player policy chooses a directive from its private observation. Scripted and
+prompt policies use the same action interface; see
 [docs/COMMANDING.md](docs/COMMANDING.md).
 
 ## Watch it
@@ -46,12 +46,12 @@ coworld upload-policy coworld-knights-archers:latest \
 | path | what |
 |---|---|
 | `src/knights_archers.nim` | the game server entrypoint (`/bin/knights-archers`) |
-| `src/knights_archers_player.nim` | scripted, prompt, and Jev policy container (`/bin/knights-archers-player`) |
+| `src/knights_archers_player.nim` | scripted and prompt policy container (`/bin/knights-archers-player`) |
 | `src/kaz/horde.nim` | the zombie list, the spawn schedule, the gate flow field, the march |
 | `src/kaz/arrows.nim` | the in-flight arrow list |
 | `src/kaz/melee.nim` | the knight's wedge |
 | `src/kaz/{decide,directives,control,baselines}.nim` | game-owned turn, rules, and fallback |
-| `src/kaz/{llm,jev_policy}.nim` | player-side model policies |
+| `src/kaz/llm.nim` | player-side model policies |
 | `src/kaz/{sim,sim_types,sim_state,server,broadcast,replays,global}.nim` | the inherited engine |
 | `client/` | the broadcast chrome |
 | `replay-viewer/` | the emscripten static replay bundle |
