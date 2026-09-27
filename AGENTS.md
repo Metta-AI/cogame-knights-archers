@@ -30,14 +30,14 @@ survives in `src/`, `client/` or `replay-viewer/`.
   seed.
 - `src/knights_archers_player.nim` — the seat client. It registers for about
   10 s because joins are slot-sequential, receives its view, and sends a
-  directive from its scripted, prompt, or Jev policy.
+  directive from its scripted or prompt policy.
 - `src/kaz/horde.nim` — the zombie list, the spawn schedule, the gate flow
   field, the march, the lunge, the pressure metric.
 - `src/kaz/arrows.nim`, `src/kaz/melee.nim` — the two weapons.
 - `src/kaz/{decide,directives,control,baselines}.nim` — the game decision
   layer: parallel seat requests, deadlines, the rate floor, the budget guard,
   parsing, rune caps, fallback, navigation, and steering.
-- `src/kaz/{llm,jev_policy}.nim` — model requests and candidate ranking used
+- `src/kaz/llm.nim` — prompt model requests used
   only by the ordinary player client.
 - `src/kaz/{sim_types,arena,map_art,sim_config,sim_state,roster,sim}.nim` — the
   inherited engine. `sim.nim` imports and RE-EXPORTS all of them, so
