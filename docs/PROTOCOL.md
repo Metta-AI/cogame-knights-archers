@@ -33,7 +33,7 @@ exchanges private JSON decision frames with the game:
    first ~10 s of frames because joins are slot-sequential:
 
    ```json
-   {"type":"register","kind":"scripted"|"prompt"|"jev",
+   {"type":"register","kind":"scripted"|"prompt"|"external",
     "scripted":"phalanx"|"stand"|null,"policy":"<free label>"}
    ```
 
@@ -45,7 +45,7 @@ exchanges private JSON decision frames with the game:
    way it is not for an ordinary client: this seat sends no inputs, so the
    dead-reckoning hazard `fastMode` warns about cannot arise.
 
-3. **one text decision frame** for each prompt or Jev seat at a turn boundary:
+3. **one text decision frame** for each prompt or external seat at a turn boundary:
 
    ```json
    {"type":"decision","protocol":"kaz.player.v2","id":100000,
