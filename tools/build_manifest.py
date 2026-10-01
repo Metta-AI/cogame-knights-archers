@@ -236,10 +236,7 @@ manifest = {
             "type": "game",
             "image": "{{KNIGHTS_ARCHERS_IMAGE}}",
             "run": ["/bin/knights-archers"],
-            "env": {
-                "ANTHROPIC_API_KEY_URI":
-                    "secret://coworld/knights-archers/anthropic_api_key"
-            },
+            "env": {},
             "source_url":
                 "https://github.com/Metta-AI/cogame-knights-archers/tree/main",
         },

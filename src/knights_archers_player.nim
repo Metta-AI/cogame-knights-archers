@@ -132,7 +132,7 @@ when isMainModule:
             else:
               let request = client.requestFor(
                 systemPromptFor(view["you"]["role"].getStr()),
-                userMessage(prompt, $view))
+                userMessage(prompt, $view), -1)
               let response = client.curl.post(request.url, request.headers,
                 request.body, timeoutSeconds)
               reply["action"] = extractJsonObject(
