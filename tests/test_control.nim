@@ -40,7 +40,7 @@ block everyEmittedDirectiveValidates:
     ctl.observeHeroes(sim)
     for kind in [blPhalanx, blStand]:
       for seat in 0 ..< sim.seatCount():
-        let directive = scriptedDirective(ctl, sim, kind, sim.commandedCogs(seat))
+        let directive = scriptedDirective(sim.policyView(seat), kind)
         check(directive.note.runeLen <= MaxNoteRunes,
           "note over the cap: " & directive.note)
         check(directive.orders.len == 1,

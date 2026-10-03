@@ -16,3 +16,13 @@ replay-viewer/dist/
 __pycache__/
 *.pyc
 .DS_Store
+
+# Private trajectories and generated training corpora.
+**/*.jsonl
+corpus*/
+dataset*/
+training-data*/
+private*/
+__pycache__/
+*.pyc
+**/fixture_calls.json

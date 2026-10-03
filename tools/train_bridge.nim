@@ -10,7 +10,7 @@ const
   Intents = ["intercept", "hold", "screen", "focus", "fall_back", "regroup"]
   Says = ["", "choke", "on it", "loose", "back"]
   Fields = ["intent", "target_x", "target_y", "face", "face_x", "face_y", "say"]
-  OperatorPrompt = "Defend the gate with your squad using only the current board and prior shouts."
+
 
 proc seedOf(value: string): int =
   var hash = 2166136261'u32
@@ -106,25 +106,39 @@ proc hostedDirective(candidate: JsonNode, alias: string): JsonNode =
     order["face"] = %[candidate["face_x"], candidate["face_y"]]
   %*{"cogs": [order]}
 
-proc decision(view: JsonNode, seat, id: int): JsonNode =
+proc decision(view: JsonNode, seat, id: int, language: bool, operatorPrompt: string): JsonNode =
   var properties = newJObject()
   var required = newJArray()
   for head in heads():
     let name = head["name"].getStr()
     properties[name] = %*{"enum": head["choices"]}
     required.add(%name)
-  %*{"kind": "decision", "game": "knights-archers", "decision_id": id,
+  result = %*{"kind": "decision", "game": "knights-archers", "decision_id": id,
     "seat": seat, "engine_seat": seat, "turn": view["turn"],
     "semantic_view": view, "inbox": [],
     "messages": [{"role": "system", "content": systemPromptFor(view["you"]["role"].getStr())},
-      {"role": "user", "content": userMessage(OperatorPrompt, $view)}],
+      {"role": "user", "content": userMessage(operatorPrompt, $view)}],
     "speech_messages": [],
     "action_schema": {"type": "object", "properties": properties,
       "required": required}, "typed_question": newJNull()}
 
+  result["inference_mode"] = if language: %"text_action" else: newJNull()
+  if language:
+    result["action_schema"] = %*{"type": "object", "properties": {
+      "note": {"type": "string", "maxLength": MaxNoteRunes},
+      "cogs": {"type": "array", "minItems": 1, "maxItems": 1,
+        "items": {"type": "object", "properties": {
+          "id": {"enum": [view["you"]["id"].getStr()]},
+          "intent": {"enum": Intents}, "target": {"type": "array", "minItems": 2, "maxItems": 2},
+          "face": {}, "say": {"type": "string", "maxLength": MaxSayRunes}},
+          "required": ["id", "intent", "target"]}}}, "required": ["cogs"]}
+
 when isMainModule:
   let args = commandLineParams()
-  if args.len != 2: quit("usage: knights-archers-train-bridge MANIFEST VARIANT", 1)
+  if args.len notin 2 .. 4: quit("usage: knights-archers-train-bridge MANIFEST VARIANT [--language [OPERATOR_PROMPT]]", 1)
+  let language = args.len >= 3 and args[2] == "--language"
+  if args.len >= 3 and not language: quit("unknown mode", 1)
+  let operatorPrompt = if args.len == 4: args[3] else: DefaultOperatorPrompt
   let variant = args[1]
   doAssert variant in Variants
   let manifest = parseFile(args[0])
@@ -142,6 +156,7 @@ when isMainModule:
   var seat = 0
   var id = 0
   var waves = 0
+  var rejected = 0
   let protocolFd = dup(1)
   doAssert protocolFd >= 0 and dup2(2, 1) >= 0
   while not stdin.endOfFile:
@@ -171,35 +186,73 @@ when isMainModule:
       for actor in 0 ..< 4:
         views[actor] = parseJson(engine.seatViewJson(game, actor, 0,
           config.maxTicks div config.turnTicks))
-        teachers[actor] = action(scriptedDirective(engine.ctl, game,
-          blPhalanx, game.commandedCogs(actor)).orders[0])
+        teachers[actor] = action(scriptedDirective(game.policyView(actor), blPhalanx).orders[0])
       engine.markTurn(game)
-      response = views[seat].decision(seat, id)
+      response = views[seat].decision(seat, id, language, operatorPrompt)
     of "encode":
       doAssert waves < game.config.maxGames
       response = %*{"decision_id": id,
         "values": views[seat].values(variant), "action_heads": heads()}
     of "teacher":
       doAssert waves < game.config.maxGames
-      response = %*{"response": $teachers[seat]}
+      response = %*{"response": $(if language:
+        scriptedDirective(views[seat].policyView(), blPhalanx).actionJson() else: teachers[seat])}
     of "step":
       doAssert waves < game.config.maxGames and request["decision_id"].getInt() == id
-      let candidate = parseJson(request["response"].getStr())
-      for head in heads():
-        doAssert candidate[head["name"].getStr()] in head["choices"]
-      let directive = parseSquadDirective(candidate.hostedDirective(game.cogAlias(seat)),
-        @[game.cogAlias(seat)], @[seat], MapWidth div 2, MapHeight div 2,
-        MapWidth, MapHeight)
+      var candidate = newJNull()
+      var directive: SquadDirective
+      var consumed = false
+      if language:
+        let json = jsonProposal(request["response"].getStr())
+        var parsed: DirectiveProposal
+        if json.ok:
+          let gate = gateCentre(game)
+          parsed = parseSquadDirective(json.node, @[game.cogAlias(seat)], @[seat],
+            gate.x, gate.y, MapWidth - 1, MapHeight - 1)
+        if not json.ok or not parsed.ok:
+          inc rejected
+          if rejected < 2:
+            response = %*{"kind": "rejected", "reason": "parse_error",
+              "observation": views[seat].decision(seat, id, language, operatorPrompt)}
+            stdout.flushFile()
+            doAssert dup2(protocolFd, 1) >= 0
+            stdout.writeLine($response)
+            stdout.flushFile()
+            doAssert dup2(2, 1) >= 0
+            continue
+          consumed = true
+          directive = scriptedDirective(views[seat].policyView(), blPhalanx)
+          directive.source = dsFallback
+        else:
+          directive = parsed.directive
+          let proposal = directive.actionJson()
+          engine.repairMissingOrders(game, seat, directive)
+          if directive.actionJson() != proposal:
+            consumed = true
+            directive.source = dsFallback
+        candidate = directive.actionJson()
+      else:
+        candidate = parseJson(request["response"].getStr())
+        for head in heads(): doAssert candidate[head["name"].getStr()] in head["choices"]
+        let gate = gateCentre(game)
+        let parsed = parseSquadDirective(candidate.hostedDirective(game.cogAlias(seat)),
+          @[game.cogAlias(seat)], @[seat], gate.x, gate.y, MapWidth - 1, MapHeight - 1)
+        doAssert parsed.ok
+        directive = parsed.directive
       doAssert directive.orders.len == 1
       orders[seat] = directive.orders[0]
       engine.directives[seat] = directive
       engine.haveDirective[seat] = true
+      rejected = 0
       inc id
       inc seat
       var observation: JsonNode
       if seat < 4:
-        observation = views[seat].decision(seat, id)
+        observation = views[seat].decision(seat, id, language, operatorPrompt)
       else:
+        for issued in engine.directives:
+          for order in issued.orders:
+            if order.say.len > 0: discard game.applyShout(order.cogIndex, order.say)
         while game.phase == Playing:
           engine.ctl.observeHeroes(game)
           var inputs = newSeq[InputState](game.players.len)
@@ -243,12 +296,12 @@ when isMainModule:
           for actor in 0 ..< 4:
             views[actor] = parseJson(engine.seatViewJson(game, actor, turn,
               game.config.maxTicks div game.config.turnTicks))
-            teachers[actor] = action(scriptedDirective(engine.ctl, game,
-              blPhalanx, game.commandedCogs(actor)).orders[0])
+            teachers[actor] = action(scriptedDirective(game.policyView(actor), blPhalanx).orders[0])
           engine.markTurn(game)
-          observation = views[seat].decision(seat, id)
-      response = %*{"kind": "accepted", "action": candidate,
+          observation = views[seat].decision(seat, id, language, operatorPrompt)
+      response = %*{"kind": (if consumed: "consumed_rejection" else: "accepted"), "action": candidate,
         "observation": observation}
+      if consumed: response["reason"] = %"parse_error"
     else:
       raise newException(ValueError, "unknown command: " & request["kind"].getStr())
     stdout.flushFile()

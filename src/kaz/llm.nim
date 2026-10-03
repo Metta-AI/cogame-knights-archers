@@ -18,8 +18,8 @@
 ## offline certification finish in seconds.
 
 import
-  std/[json, os, strutils, unicode],
-  bitworld/runtime,
+  std/[json, math, options, os, strutils, unicode],
+  bitworld/[runtime, decision_trajectory],
   curly,
   sim_types, directives
 
@@ -42,6 +42,7 @@ type
     bedrockModel: int
     bedrockToken: string
     model*: string
+    temperature*: float
     maxOutputTokens*: int
     disabled*: bool
     throttled*: bool
@@ -97,10 +98,13 @@ proc bedrockUrl(client: LlmClient): string =
 
 proc newLlmClient*(): LlmClient =
   result = LlmClient(
+    temperature: parseFloat(getEnv("COWORLD_LLM_TEMPERATURE", "1")),
     model: getEnv("PLAYER_MODEL", "claude-haiku-4-5-20251001"),
     maxOutputTokens: max(1, getEnv("PLAYER_MAX_OUTPUT_TOKENS",
       $DefaultMaxOutputTokens).parseInt())
   )
+  if classify(result.temperature) in {fcNan, fcInf, fcNegInf} or result.temperature < 0 or result.temperature > 1:
+    raise newException(ValueError, "COWORLD_LLM_TEMPERATURE must be finite and within0..1")
   let sidecarEndpoint = getEnv("COWORLD_LLM_ENDPOINT").strip()
   if sidecarEndpoint.len > 0:
     result.transport = ltSidecar
@@ -142,6 +146,7 @@ proc requestFor*(
 ): tuple[url: string, headers: HttpHeaders, body: string] =
   ## One Messages-API request, shaped for whichever transport is live.
   var body = %*{
+    "temperature": client.temperature,
     "max_tokens": client.maxOutputTokens,
     "system": system,
     "messages": [{"role": "user", "content": user}]
@@ -171,46 +176,38 @@ proc requestFor*(
   result.headers = headers
   result.body = $body
 
-proc textOf*(
-  client: LlmClient, response: Response, error, url: string
-): string =
-  ## The text of one batched reply, or an LlmError describing why there is
-  ## none. Auth failure disables the client for the rest of the episode;
-  ## model-access denial and throttling rotate the Bedrock model for the next
-  ## batch instead.
-  if error.len > 0:
-    raise newException(LlmError, "llm transport: " & error)
-  if response.code == 401 or response.code == 403:
-    ## RUNE-safe: this text becomes `fallback.detail` in the replay, and a
-    ## provider body is arbitrary bytes. A byte slice can cut a codepoint in
-    ## half, and truncateRunes downstream only SHORTENS — it cannot repair a
-    ## broken one.
-    let detail = response.body.truncateRunes(MaxFallbackDetailRunes)
-    if "Model access is denied" in response.body and
-        client.tryNextBedrockModel("no model access"):
-      raise newException(LlmError, "bedrock model access denied: " & detail)
+type LlmCompletion* = object
+  ok*: bool
+  text*: string
+  cause*: string
+  payload*: Option[JsonNode]
+
+proc textOf*(client: LlmClient, response: Response): LlmCompletion =
+  ## Expected provider outcomes are typed; malformed protocol payloads crash.
+  if response.code in [401, 403]:
+    if "Model access is denied" in response.body and client.tryNextBedrockModel("no model access"):
+      return LlmCompletion(cause: "no_credentials")
     client.disabled = true
-    raise newException(
-      LlmError, "llm auth failed (" & $response.code & ") at " & url & ": " & detail)
+    return LlmCompletion(cause: "no_credentials")
   if response.code == 429:
-    let detail = response.body.truncateRunes(MaxFallbackDetailRunes)
-    if not client.tryNextBedrockModel("throttled"):
-      ## Nothing left to rotate to: a second call this turn would be refused
-      ## the same way, so the turn loop must not spend its retry on it.
-      client.throttled = true
-    raise newException(LlmError, "llm throttled (429): " & detail)
+    if not client.tryNextBedrockModel("throttled"): client.throttled = true
+    return LlmCompletion(cause: "throttled")
   if response.code < 200 or response.code >= 300:
-    raise newException(LlmError, "anthropic error " & $response.code & ": " &
-      response.body.truncateRunes(MaxFallbackDetailRunes))
-  let payload = parseJson(response.body)
-  if payload{"stop_reason"}.getStr() == "refusal":
-    raise newException(LlmError, "anthropic refusal")
+    return LlmCompletion(cause: "transport_error")
+  let parsed = parseJsonObject(response.body)
+  if not parsed.ok: return LlmCompletion(cause: "parse_error")
+  let payload = parsed.node
+  result.payload = some(payload)
   for contentBlock in payload["content"]:
-    if contentBlock{"type"}.getStr() == "text":
-      result.add(contentBlock{"text"}.getStr())
-  if payload{"stop_reason"}.getStr() == "max_tokens" and '{' notin result:
-    raise newException(LlmError, "reply cut off at max_tokens before any " &
-      "JSON: " & result.truncateRunes(160).replace("\n", " "))
+    if contentBlock["type"].getStr() == "text": result.text.add(contentBlock["text"].getStr())
+  if payload["stop_reason"].getStr() == "refusal":
+    result.cause = "parse_error"
+    return
+  if payload["stop_reason"].getStr() == "max_tokens" and '{' notin result.text:
+    result.cause = "parse_error"
+  else: result.ok = true
+
+const DefaultOperatorPrompt* = "Defend the gate with your squad using only the current board and prior shouts."
 
 const SystemPrompt* = """
 You are ONE hero defending a keep against a horde of the dead, in a top-down
@@ -274,3 +271,36 @@ proc userMessage*(operatorPrompt: string, viewJson: string): string =
   ## The user message: the operator's guidance, a blank line, then the seat's
   ## view. The view is built server-side from the seat's fog (see decide.nim).
   operatorBlock(operatorPrompt) & viewJson
+
+proc responseEvidence*(attempt: var DecisionAttempt, headers: HttpHeaders, body: string) =
+  ## Preserve native metadata before the existing domain completion parser runs.
+  attempt.rawResponse = %body
+  if headers.contains("X-Softmax-Llm-Call-Id"):
+    attempt.platformCallId = some(headers["X-Softmax-Llm-Call-Id"])
+  for header in ["X-Coworld-Checkpoint-Sha256", "X-Coworld-Tokenizer-Sha256",
+      "X-Coworld-Chat-Template-Sha256"]:
+    if headers.contains(header):
+      case header
+      of "X-Coworld-Checkpoint-Sha256": attempt.modelIdentity = some(headers[header])
+      of "X-Coworld-Tokenizer-Sha256": attempt.tokenizerIdentity = some(headers[header])
+      else: attempt.chatTemplateSha256 = some(headers[header])
+
+proc completionEvidence*(attempt: var DecisionAttempt, payload: JsonNode) =
+  attempt.model = some(payload["model"].getStr())
+  attempt.stopReason = some(payload["stop_reason"].getStr())
+  if payload.hasKey("usage"):
+    attempt.inputTokens = some(payload["usage"]["input_tokens"].getInt())
+    attempt.outputTokens = some(payload["usage"]["output_tokens"].getInt())
+  if payload.hasKey("sampling_evidence") and payload["sampling_evidence"].kind != JNull:
+    let sampling = payload["sampling_evidence"]
+    var promptIds, sampledIds: seq[int]
+    var probabilities: seq[float]
+    for token in sampling["prompt_token_ids"]: promptIds.add(token.getInt())
+    for token in sampling["completion_token_ids"]: sampledIds.add(token.getInt())
+    attempt.promptTokenIds = some(promptIds)
+    attempt.sampledTokenIds = some(sampledIds)
+    if sampling["behavior_log_probs"].kind != JNull:
+      for probability in sampling["behavior_log_probs"]: probabilities.add(probability.getFloat())
+      attempt.behaviorLogprobs = some(probabilities)
+    attempt.stopReason = some(sampling["stop_reason"].getStr())
+    attempt.decoder["sampling_evidence"] = copy(sampling)

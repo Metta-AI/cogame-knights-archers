@@ -1848,39 +1848,6 @@ proc placeBarrier(sim: var SimServer, playerIndex: int) =
   sim.logGameEvent(
     playerColorText(player.color) & " placed a cardboard barrier")
 
-proc applyBarrierInput(
-  sim: var SimServer,
-  playerIndex: int,
-  input, prev: InputState
-) =
-  ## Press C to unfold a carried barrier where you stand — instant, no
-  ## charge. C is the grenade button too, but a cog never holds both
-  ## (pickups are mutually exclusive), so the press is unambiguous.
-  if not sim.players[playerIndex].alive or
-      not sim.players[playerIndex].hasBarrier:
-    return
-  if input.c and not prev.c:
-    sim.placeBarrier(playerIndex)
-
-proc applyGrenadeInput(
-  sim: var SimServer,
-  playerIndex: int,
-  input, prev: InputState
-) =
-  ## Hold C to charge a throw, release to let it fly.
-  if not sim.players[playerIndex].alive or
-      not sim.players[playerIndex].hasGrenade:
-    sim.players[playerIndex].throwCharge = 0
-    return
-  if input.c:
-    sim.players[playerIndex].throwCharge = min(
-      sim.players[playerIndex].throwCharge + 1, GrenadeChargeTicks
-    )
-  elif prev.c and sim.players[playerIndex].throwCharge > 0:
-    sim.throwGrenade(playerIndex)
-  else:
-    sim.players[playerIndex].throwCharge = 0
-
 proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
   ## Applies one landing: a cosmetic blast flash (which views also use for
   ## the audible landing's sound ring) plus blast damage to EVERYONE inside

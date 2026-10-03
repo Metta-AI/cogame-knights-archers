@@ -1,11 +1,11 @@
 import
-  std/[algorithm, json, locks, monotimes, nativesockets, os, strutils, tables, times],
+  std/[algorithm, json, locks, monotimes, nativesockets, options, os, strutils, tables, times],
   supersnappy,
   bitworld/client as bitworldClient, bitworld/profile, bitworld/spriteprotocol,
-  bitworld/runtime,
+  bitworld/runtime, bitworld/decision_trajectory,
   curly, mummy,
   sim, global, replays, broadcast, replay_runtime, events, wire_constants,
-  control, directives, baselines, decide
+  control, directives, baselines, decide, training_capture
 
 when defined(posix):
   from std/posix import SHUT_RDWR, shutdown
@@ -30,7 +30,7 @@ type
     inputPressedMasks: Table[WebSocket, uint8]
     lastAppliedMasks: Table[WebSocket, uint8]
     chatMessages: Table[WebSocket, string]
-    actionMessages: Table[WebSocket, string]
+    actionMessages: Table[WebSocket, seq[string]]
     playerIndices: Table[WebSocket, int]
     playerAddresses: Table[WebSocket, string]
     playerSlots: Table[WebSocket, int]
@@ -162,8 +162,7 @@ const
                              ## answering this long after the artifacts are
                              ## written, then the process exits.
   # SpriteClientReady (0x85) and SpriteClientDebugSprite (0x86) now come from
-  # bitworld/spriteprotocol: the pin carries both, and still keeps ButtonC,
-  # which the grenade input bit needs.
+  # bitworld/spriteprotocol supplies the supported client message kinds.
 
 proc liveProgressMaxTick(config: GameConfig): int =
   ## Returns the live viewer tick-bar budget.
@@ -361,6 +360,9 @@ proc exchangeDecisions(
   result = newSeq[string](requests.len)
   var sockets = newSeq[WebSocket](requests.len)
   var connected = newSeq[bool](requests.len)
+  var stages = newSeq[int](requests.len)
+  var attempts = newSeq[JsonNode](requests.len)
+  for node in attempts.mitems: node = newJNull()
   {.gcsafe.}:
     withLock appState.lock:
       for position, request in requests:
@@ -383,13 +385,63 @@ proc exchangeDecisions(
           if not connected[position] or result[position].len > 0:
             continue
           if appState.actionMessages.hasKey(websocket):
-            result[position] = appState.actionMessages[websocket]
+            let messages = appState.actionMessages[websocket]
             appState.actionMessages.del(websocket)
-          else:
-            pending = true
+            for raw in messages:
+              if result[position].len > 0: break
+              let parsed = jsonProposal(raw)
+              if not parsed.ok:
+                result[position] = raw
+                break
+              let answer = parsed.node
+              if answer{"id"}.getInt() != requests[position]["id"].getInt(): continue
+              let kind = answer{"type"}.getStr()
+              if kind in ["attempt_started", "attempt_response", "action"]:
+                var valid = answer{"protocol"}.getStr() == "kaz.player.v2"
+                let supplied = if answer.hasKey("training_attempt"): answer["training_attempt"] else: newJNull()
+                if supplied.kind == JObject:
+                  let expected = attemptEvidenceJson(newDecisionAttempt("wire", "wire", aoUnknown))
+                  for field in expected.keys: valid = valid and supplied.hasKey(field)
+                  for field in supplied.keys: valid = valid and expected.hasKey(field)
+                if kind != "action":
+                  valid = valid and supplied.kind == JObject
+                if stages[position] > 0:
+                  valid = valid and supplied.kind == JObject
+                  if supplied.kind == JObject:
+                    for field in ["attempt_id", "policy", "origin", "prompt", "request"]:
+                      valid = valid and supplied{field} == attempts[position]{field}
+                    if stages[position] == 2:
+                      for field in ["raw_response", "platform_call_id", "latency_ms"]:
+                        valid = valid and supplied{field} == attempts[position]{field}
+                if valid and kind == "attempt_started":
+                  valid = valid and stages[position] == 0 and
+                    supplied{"raw_response"}.kind == JNull and
+                    supplied{"response"}.kind == JNull and
+                    supplied{"platform_call_id"}.kind == JNull and
+                    supplied{"latency_ms"}.kind == JNull
+                elif valid and kind == "attempt_response":
+                  valid = valid and stages[position] == 1 and
+                    supplied{"raw_response"}.kind != JNull and
+                    supplied{"latency_ms"}.kind != JNull
+                if not valid:
+                  result[position] = $( %*{"type": "action", "protocol": "kaz.player.v2",
+                    "id": requests[position]["id"], "source": "fallback", "cause": "parse_error",
+                    "training_attempt": attempts[position]})
+                elif kind == "action":
+                  result[position] = raw
+                else:
+                  attempts[position] = supplied
+                  stages[position] = if kind == "attempt_started": 1 else: 2
+          if result[position].len == 0: pending = true
       if not pending:
         break
       sleep(10)
+
+    for position, request in requests:
+      if result[position].len == 0 and attempts[position].kind != JNull:
+        result[position] = $( %*{"type": "action", "protocol": "kaz.player.v2",
+          "id": request["id"], "source": "fallback", "cause": "timeout",
+          "training_attempt": attempts[position]})
 
 proc removeWebSocketState(websocket: WebSocket): int =
   ## Removes websocket-owned state and returns its former player index.
@@ -909,7 +961,7 @@ proc websocketHandler(
         withLock appState.lock:
           if websocket.isPlayerWebSocket() and
               websocket in appState.playerIndices:
-            appState.actionMessages[websocket] = message.data
+            appState.actionMessages.mgetOrPut(websocket, @[]).add(message.data)
     elif message.kind == BinaryMessage:
       {.gcsafe.}:
         withLock appState.lock:
@@ -1161,8 +1213,6 @@ proc clearPressedInputMask(input: var InputState, mask: uint8) =
     input.attack = false
   if (mask and ButtonB) != 0:
     input.b = false
-  if (mask and ButtonC) != 0:
-    input.c = false
 
 proc clearPressedInputMasks(
   inputs: var seq[InputState],
@@ -1291,6 +1341,11 @@ proc runServerLoop*(
   var config =
     if replayLoaded: move(initializedReplay.config)
     else: initialConfig
+  let trajectoryUri = getEnv("COGAME_SAVE_TRAJECTORY_URI")
+  let capture = if trajectoryUri.len > 0:
+    some(newMatchCapture(getEnv("COWORLD_EPISODE_ID"), getEnv("COWORLD_GAME_VERSION"),
+      getEnv("COWORLD_SOURCE_REVISION"), config.seed))
+    else: none(MatchCapture)
   var
     replayWriter = openReplayWriter(saveReplayPath, config.configJson())
     replayPlayer =
@@ -1958,8 +2013,10 @@ proc runServerLoop*(
         lastTurnKey = turnKey
         let turnsPerGame =
           if config.maxTicks > 0: max(1, config.maxTicks div turnTicks) else: 0
+        let observationHash = sim.gameHash()
         let records = engine.turn(sim, turnIndex, turnsPerGame,
           elapsedSeconds, exchangeDecisions)
+        if capture.isSome: capture.get().beginTurn(engine, sim, observationHash)
         for record in records:
           replayWriter.writeChat(tickTime(sim.tickCount), 0, record)
         for seat in 0 ..< engine.directives.len:
@@ -2072,6 +2129,12 @@ proc runServerLoop*(
           sim.phase = GameOver
           quitAfterFrame = true
           break
+        if capture.isSome:
+          var actualMasks = newSeq[uint8](stepInputs.len)
+          for seat, input in stepInputs: actualMasks[seat] = encodeInputMask(input)
+          capture.get().recordTick(actualMasks, sim)
+          if phaseBeforeStep == Playing and sim.phase != Playing:
+            capture.get().flushTurn(sim.tickCount, sim.phase == GameOver and sim.gameIndex + 1 >= config.maxGames)
         if sim.collectEvents:
           # Drained every tick, like the extractor's walk: the sink is a plain
           # seq on the sim and would otherwise grow for the whole match.
@@ -2272,6 +2335,9 @@ proc runServerLoop*(
         writeFile(eventsPath, collectedEvents.eventsJsonl(sim.tickCount))
         echo "Events written: ", eventsPath,
           " (", collectedEvents.len, " events, ", getFileSize(eventsPath), " bytes)"
+      if capture.isSome:
+        capture.get().finishMatch(sim)
+        capture.get().trajectory.writeEventsToUri(trajectoryUri)
       if runtimeConfig.resultsUri.len > 0:
         let scoresJson = sim.playerResultsJson() & "\n"
         runtimeConfig.writeResults(scoresJson)

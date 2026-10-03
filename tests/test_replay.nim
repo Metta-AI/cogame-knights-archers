@@ -81,8 +81,7 @@ for step in 0 ..< 40_000:
     if game0.gameTicksElapsed() mod turnTicks == 0 and turnKey != lastTurnKey:
       lastTurnKey = turnKey
       for seat in 0 ..< game0.seatCount():
-        var directive = scriptedDirective(
-          ctl, game0, blPhalanx, game0.commandedCogs(seat))
+        var directive = scriptedDirective(game0.policyView(seat), blPhalanx)
         ## A non-ASCII note whose cut lands ON a multi-byte boundary: the cap
         ## is in RUNES, so this must round-trip through parseJson and decode
         ## as UTF-8.

@@ -2,6 +2,7 @@
 
 import std/json
 import kaz/[sim, decide, control, directives]
+import bitworld/decision_trajectory
 import ./helpers
 
 proc check(condition: bool, what: string) =
@@ -108,7 +109,8 @@ block missingActionsHaveOneSharedDeadlineAndFallback:
     check(requests.len == 4, "each attempt sends all four views together")
     newSeq[string](requests.len)
   let records = engine.turn(world, 0, 24, 0, exchange)
-  check(deadlines == @[5000, 2000], "the two batch deadlines are bounded")
+  check(deadlines == @[world.config.attempt1Ms, world.config.retryMs],
+    "the two batch deadlines preserve exact millisecond budgets")
   for seat in 0 ..< world.seatCount():
     check(engine.haveDirective[seat], "a missing action leaves no hero idle")
     check(engine.directives[seat].source == dsFallback,
@@ -189,6 +191,47 @@ block theShippedVariantsPaceThemselvesInsideTheBudget:
       cfg["lobbyJoinTimeoutTicks"].getInt() div TargetFps + 60 + 20
     check(worst <= stop, id & ": episode can overrun the engine stop")
     check(stop <= 720, id & ": engine stop exceeds 60% of platform timeout")
+
+block playerCannotAssertServerTeacherOrigin:
+  var world = llmWorld()
+  var engine = initDecisionEngine(world)
+  engine.seatEveryoneLlm()
+  let exchange: DecisionExchange = proc(requests: seq[JsonNode], timeoutMs: int): seq[string] =
+    result = newSeq[string](requests.len)
+    for position, request in requests:
+      var reply = parseJson(validReply(request))
+      var asserted = newDecisionAttempt("player", "asserted-origin",
+        if position mod 2 == 0: aoTeacher else: aoHuman)
+      asserted.response = %($reply["action"])
+      reply["training_attempt"] = attemptEvidenceJson(asserted)
+      result[position] = $reply
+  discard engine.turn(world, 0, 24, 0, exchange)
+  for decision in engine.decisions:
+    check(decision.attempts.len == 1, "external teacher assertion is retained")
+    check(decision.attempts[0].origin == aoUnknown, "player cannot qualify itself as an engine teacher or human")
+
+block modelResponseMustMatchExecutedProposal:
+  var world = llmWorld()
+  var engine = initDecisionEngine(world)
+  engine.seatEveryoneLlm()
+  let exchange: DecisionExchange = proc(requests: seq[JsonNode], timeoutMs: int): seq[string] =
+    result = newSeq[string](requests.len)
+    for position, request in requests:
+      var reply = parseJson(validReply(request))
+      var generated = copy(reply["action"])
+      generated["note"] = %"another model reply"
+      var evidence = newDecisionAttempt("player", "model-fixture", aoModel)
+      evidence.response = %($generated)
+      evidence.rawResponse = %($generated)
+      reply["training_attempt"] = attemptEvidenceJson(evidence)
+      result[position] = $reply
+  discard engine.turn(world, 0, 24, 0, exchange)
+  for decision in engine.decisions:
+    check(decision.status == asFallback, "model/action mismatch executes a fallback")
+    check(decision.attempts.len == 2, "all mismatched attempts are retained")
+    for attempt in decision.attempts:
+      check(not attempt.accepted, "mismatched model response cannot become a target")
+      check(attempt.parsedAction != decision.executedAction, "independent proposal remains distinct from engine fallback")
 
 block anUnregisteredSeatStillPlaysPhalanx:
   var world = llmWorld()

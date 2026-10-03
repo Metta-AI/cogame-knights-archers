@@ -7,3 +7,13 @@ tmp
 build
 replay-viewer/dist
 *.tmp
+
+# Private trajectories and generated training corpora.
+**/*.jsonl
+corpus*/
+dataset*/
+training-data*/
+private*/
+__pycache__/
+*.pyc
+**/fixture_calls.json

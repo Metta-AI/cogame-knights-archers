@@ -134,8 +134,7 @@ proc runScripted*(
       if sim.gameTicksElapsed() mod turnTicks == 0 and turnKey != lastTurnKey:
         lastTurnKey = turnKey
         for seat in 0 ..< sim.seatCount():
-          orders[seat] = scriptedDirective(
-            ctl, sim, kind, sim.commandedCogs(seat))
+          orders[seat] = scriptedDirective(sim.policyView(seat), kind)
           have[seat] = true
       for cogIndex in 0 ..< sim.players.len:
         let seat = sim.cogSeat(cogIndex)
@@ -169,13 +168,13 @@ proc runScripted*(
     if sim.endReason.len > 0: sim.endReason else: ReasonComplete
 
 proc maskLegal*(mask: uint8): bool =
-  ## Up+Down and Left+Right are never set together, and C is never set —
-  ## knights-archers places nothing C could throw.
+  ## Up+Down and Left+Right are never set together, and reserved bit7 is never set —
+  ## knights-archers does not use the reserved wire bit.
   if (mask and ButtonUp) != 0 and (mask and ButtonDown) != 0:
     return false
   if (mask and ButtonLeft) != 0 and (mask and ButtonRight) != 0:
     return false
-  if (mask and ButtonC) != 0:
+  if (mask and 0x80'u8) != 0:
     return false
   true
 
