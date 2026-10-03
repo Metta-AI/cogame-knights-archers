@@ -389,7 +389,7 @@ proc exchangeDecisions(
             appState.actionMessages.del(websocket)
             for raw in messages:
               if result[position].len > 0: break
-              let parsed = jsonProposal(raw)
+              let parsed = parseJsonObject(raw)
               if not parsed.ok:
                 result[position] = $( %*{"type": "action", "protocol": "kaz.player.v2",
                   "id": requests[position]["id"], "source": "fallback", "cause": "parse_error",

@@ -156,7 +156,8 @@ jobs:
           python3 tools/test_train_bridge.py "$RUNNER_TEMP/bridge"
           nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/game" src/knights_archers.nim
           nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/player" src/knights_archers_player.nim
-          python3 tools/test_native_trajectory.py "$RUNNER_TEMP/game" "$RUNNER_TEMP/player" "$RUNNER_TEMP/native-trajectories"
+          nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/malformed-player" tools/test_malformed_player.nim
+          COWORLD_TEST_MALFORMED_PLAYER="$RUNNER_TEMP/malformed-player" python3 tools/test_native_trajectory.py "$RUNNER_TEMP/game" "$RUNNER_TEMP/player" "$RUNNER_TEMP/native-trajectories"
           nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/check-replay" tools/check_training_replay.nim
           for episode in "$RUNNER_TEMP/native-trajectories"/*; do
             "$RUNNER_TEMP/check-replay" "$episode/replay.bitreplay" "$episode/trajectory.jsonl"

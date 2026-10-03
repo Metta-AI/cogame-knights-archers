@@ -26,7 +26,7 @@ const
   ReconnectAttempts = 6      ## 6 x 500 ms of re-dialling after a live socket
                              ## dies, before accepting the game is gone.
 
-proc registrationBlob(kind, scripted, policy: string): string =
+proc registrationBlob*(kind, scripted, policy: string): string =
   var node = %*{
     "type": "register",
     "kind": kind,
@@ -38,7 +38,7 @@ proc registrationBlob(kind, scripted, policy: string): string =
     node["scripted"] = newJNull()
   blobFromSpriteChat($node)
 
-proc readyBlob(): string =
+proc readyBlob*(): string =
   ## The Sprite v1 player-ready packet (0x85). Legitimate here in a way it is
   ## not for an ordinary player client: this seat sends NO inputs at all (the
   ## server computes every actuator mask), so the dead-reckoning hazard

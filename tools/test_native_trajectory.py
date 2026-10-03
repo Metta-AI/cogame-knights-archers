@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GAME, PLAYER = (str(Path(arg).resolve()) for arg in sys.argv[1:3])
-flows = ("accepted", "invalid", "sampled", "greedy-null", "greedy-tokens", "provider-error", "malformed-200", "timeout")
+flows = ("accepted", "invalid", "sampled", "greedy-null", "greedy-tokens", "provider-error", "malformed-200", "timeout", "malformed-wire")
 selected_flows = (sys.argv[4],) if len(sys.argv) == 5 else flows
 assert all(flow in flows for flow in selected_flows)
 for flow in selected_flows:
@@ -108,7 +108,8 @@ for flow in selected_flows:
             for slot in range(4):
                 log = (output / f"player{slot}.log").open("w"); logs.append(log)
                 player_env = {**env, "COWORLD_PLAYER_WS_URL": f"ws://127.0.0.1:{port}/player?slot={slot}&token=t{slot}"}
-                processes.append(subprocess.Popen([PLAYER], cwd=ROOT, env=player_env, stdout=log, stderr=log))
+                binary = os.environ["COWORLD_TEST_MALFORMED_PLAYER"] if flow == "malformed-wire" and slot == 0 else PLAYER
+                processes.append(subprocess.Popen([binary], cwd=ROOT, env=player_env, stdout=log, stderr=log))
             for process in processes: assert process.wait(timeout=90) == 0
             for log in logs: log.flush()
             events = [json.loads(line) for line in (output / "trajectory.jsonl").read_text().splitlines()]
@@ -164,10 +165,13 @@ for flow in selected_flows:
             public = (output / "replay.bitreplay").read_bytes().decode("latin1") + "".join((output / p).read_text() for p in ["game.log", *(f"player{i}.log" for i in range(4))])
             for secret in ("private-guidance-fixture", "private-invalid-response", "private-provider-error", "private-malformed-provider"):
                 assert secret not in public
-            if flow in {"invalid", "malformed-200", "timeout"}:
+            if flow in {"invalid", "malformed-200", "timeout", "malformed-wire"}:
                 assert any(d["action_status"] == "fallback" and len(d["attempts"]) == 2 for d in decisions)
             if flow == "provider-error":
                 assert any(d["action_status"] == "fallback" and len(d["attempts"]) == 1 for d in decisions)
+            if flow == "malformed-wire":
+                assert all(a["origin"] == "model" and a["platform_call_id"] is not None
+                           for d in decisions if d["seat"] == "0" for a in d["attempts"])
             archive = output / "fixture_calls.json"
             archive.write_text(json.dumps({"cohort": "local HTTP fixture, not real platform archive", "synthetic_model_identities": True, "calls": calls}))
             archive.chmod(0o600)
