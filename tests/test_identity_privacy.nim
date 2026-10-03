@@ -31,8 +31,7 @@ for i in 0 ..< 30:
 world.aliveZombies = world.recountAliveZombies()
 engine.ctl.observeHeroes(world)
 for seat in 0 ..< world.seatCount():
-  engine.directives[seat] = scriptedDirective(
-    engine.ctl, world, blPhalanx, world.commandedCogs(seat))
+  engine.directives[seat] = scriptedDirective(world.policyView(seat), blPhalanx)
   engine.haveDirective[seat] = true
 
 block noSentinelReachesASeat:

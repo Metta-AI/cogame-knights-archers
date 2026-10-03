@@ -1,7 +1,7 @@
 ## The per-seat view contract: exactly what is visible and what is hidden.
 
 import
-  std/[json, strutils],
+  std/[json, random, strutils],
   kaz/[sim, decide, control, baselines],
   ./helpers
 
@@ -24,8 +24,7 @@ for i in 0 ..< 24:
 world.aliveZombies = world.recountAliveZombies()
 engine.ctl.observeHeroes(world)
 for seat in 0 ..< world.seatCount():
-  engine.directives[seat] = scriptedDirective(
-    engine.ctl, world, blPhalanx, world.commandedCogs(seat))
+  engine.directives[seat] = scriptedDirective(world.policyView(seat), blPhalanx)
   engine.directives[seat].note = "hold the gate"
   engine.haveDirective[seat] = true
 
@@ -167,5 +166,21 @@ block theViewCarriesTheWholeContract:
     "the breach line")
   check(view["gate"]["breach_ends_wave"].getBool(),
     "the view must SAY that a breach ends the wave")
+
+block teacherConsumesExactlyThePrivatePolicyView:
+  let originalSeed = world.config.seed
+  let originalRng = world.rng
+  for seat in 0 ..< world.seatCount():
+    let before = engine.seatViewJson(world, seat, 7, 24)
+    let privateView = parseJson(before).policyView()
+    check(privateView == world.policyView(seat), "native projection equals rendered private observation")
+    let teacher = scriptedDirective(privateView, blPhalanx)
+    world.config.seed = originalSeed + 12345
+    world.rng = initRand(928374)
+    check(engine.seatViewJson(world, seat, 7, 24) == before, "unseen seed/RNG do not alter private prompt")
+    check(scriptedDirective(world.policyView(seat), blPhalanx) == teacher,
+      "unseen seed/RNG do not alter teacher label")
+    world.config.seed = originalSeed
+    world.rng = originalRng
 
 echo "test_observation: ok"

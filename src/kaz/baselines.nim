@@ -13,7 +13,7 @@
 ## neither PLAYER_PROMPT nor PLAYER_SCRIPTED.
 
 import
-  std/[algorithm, strutils],
+  std/[algorithm, json, strutils],
   sim, control, directives
 
 type
@@ -73,16 +73,49 @@ proc chokePostFor*(sim: SimServer, cogIndex: int): tuple[x, y: int] =
   sim.nearestWalkable(
     clamp(post[0], 0, MapWidth - 1), clamp(post[1], 0, MapHeight - 1))
 
-proc baseOrder(sim: SimServer, cogIndex: int): CogOrder =
+type
+  VisibleZombie* = object
+    x*, y*, id*, gateDistance*: int
+  PolicyView* = object
+    cogIndex*: int
+    id*: string
+    knight*: bool
+    heroX*, heroY*, gateX*, gateY*, postX*, postY*, panicPx*: int
+    zombies*: seq[VisibleZombie]
+
+proc policyView*(sim: SimServer, cogIndex: int): PolicyView =
+  ## Only fields exposed by the ordinary canonical private decision view.
   let post = sim.chokePostFor(cogIndex)
-  CogOrder(
-    cogIndex: cogIndex,
-    id: sim.cogAlias(cogIndex),
-    intent: intHold,
-    targetX: post.x,
-    targetY: post.y,
-    say: "choke"
-  )
+  let gate = gateCentre(sim)
+  result = PolicyView(cogIndex: cogIndex, id: sim.cogAlias(cogIndex),
+    knight: sim.isKnight(cogIndex), heroX: sim.players[cogIndex].x + CollisionW div 2,
+    heroY: sim.players[cogIndex].y + CollisionH div 2, gateX: gate.x, gateY: gate.y,
+    postX: post.x, postY: post.y, panicPx: max(1, sim.config.archerPanicPx))
+  for rank, slot in rankedZombies(sim):
+    if rank >= sim.config.spawnCapAlive: break
+    let pos = sim.zombies[slot].zombiePx()
+    result.zombies.add(VisibleZombie(x: pos.x, y: pos.y, id: sim.zombies[slot].id,
+      gateDistance: sim.gateDistOf(sim.zombies[slot])))
+
+proc policyView*(view: JsonNode): PolicyView =
+  let hero = view["you"]
+  var seat = -1
+  for index, alias in ["KNIGHT-alpha", "KNIGHT-beta", "ARCHER-alpha", "ARCHER-beta"]:
+    if hero["id"].getStr() == alias: seat = index
+  if seat < 0: raise newException(ValueError, "unknown hero alias")
+  result = PolicyView(cogIndex: seat, id: hero["id"].getStr(),
+    knight: hero["role"].getStr() == "knight", heroX: hero["pos"][0].getInt(),
+    heroY: hero["pos"][1].getInt(), gateX: view["gate"]["centre"][0].getInt(),
+    gateY: view["gate"]["centre"][1].getInt(), postX: hero["choke_post"][0].getInt(),
+    postY: hero["choke_post"][1].getInt(), panicPx: hero["panic_px"].getInt())
+  for zombie in view["zombies"]:
+    result.zombies.add(VisibleZombie(x: zombie["pos"][0].getInt(),
+      y: zombie["pos"][1].getInt(), id: zombie["id"].getInt(),
+      gateDistance: zombie["gate_px"].getInt()))
+
+proc baseOrder(view: PolicyView): CogOrder =
+  CogOrder(cogIndex: view.cogIndex, id: view.id, intent: intHold,
+    targetX: view.postX, targetY: view.postY, say: "choke")
 
 type
   BaselineParams* = object
@@ -100,97 +133,37 @@ const DefaultBaselineParams* = BaselineParams(
   knightGivePx: KnightGivePx
 )
 
-proc scriptedDirective*(
-  ctl: ControlState,
-  sim: SimServer,
-  kind: Baseline,
-  governed: seq[int],
-  params = DefaultBaselineParams
-): SquadDirective =
-  ## The directive one baseline issues for the heroes it governs this turn.
-  ##
-  ## `phalanx` — role-aware, and it divides the horde BY RANK so two seats
-  ## never duplicate work. Rank the live zombies by gate distance ascending:
-  ## KNIGHT-alpha intercepts z[0], KNIGHT-beta intercepts z[1] (or z[0] when
-  ## only one is alive); ARCHER-alpha focuses z[0], ARCHER-beta focuses z[2]
-  ## (or the highest available rank). Knights never fall back. An archer with
-  ## any live zombie within `archerPanicPx` falls back toward the gate for
-  ## that turn. With no zombies alive, everybody holds the choke.
-  ##
-  ## `stand` — deliberately weaker and different in SHAPE, so the ladder gets
-  ## a spread rather than two versions of one bot: every hero holds its choke
-  ## post for the whole wave and never moves. It kills whatever walks into
-  ## reach and leaks everything that walks around it.
+proc scriptedDirective*(view: PolicyView, kind: Baseline,
+  params = DefaultBaselineParams): SquadDirective =
+  ## The same bounded directive from the ordinary private observation.
   result.source = dsScripted
   result.note = if kind == blStand: "hold the posts" else: "hold the gate"
-  if governed.len == 0:
-    return
-  let ranked = rankedZombies(sim)
-  for cogIndex in governed:
-    var order = baseOrder(sim, cogIndex)
-    if kind == blStand:
-      result.orders.add(order)
-      continue
-    if ranked.len == 0:
-      result.orders.add(order)
-      continue
-    let
-      knight = sim.isKnight(cogIndex)
-      rank = sim.cogIdentityIndex(cogIndex) mod 2
-      want =
-        if knight: rank                      ## z[0] / z[1]
-        else: (if rank == 0: 0 else: 2)      ## z[0] / z[2]
-      pick = ranked[min(want, ranked.high)]
-      (zx, zy) = sim.zombies[pick].zombiePx()
-    order.intent = if knight: intIntercept else: intFocus
-    order.targetX = zx
-    order.targetY = zy
-    order.say = if knight: "on it" else: "loose"
-    if knight:
-      ## A KNIGHT DOES FALL BACK, from three bodies at once. The design note's
-      ## `phalanx` says "knights never fall back"; measured, that baseline
-      ## ended both waves `casualty` on every seed tried, because a knight
-      ## swings once every 22 ticks and three lunging zombies close 33 px in
-      ## that window — it cannot swing them all, and a dead knight ends the
-      ## wave for everybody. This is champion #1's own published rule
-      ## (docs/COMMANDING.md), applied to the baseline: retreat while three or
-      ## more are inside 120 px, then intercept again.
+  var order = baseOrder(view)
+  if kind == blPhalanx and view.zombies.len > 0:
+    let rank = view.cogIndex mod 2
+    let want = if view.knight: rank else: (if rank == 0: 0 else: 2)
+    let zombie = view.zombies[min(want, view.zombies.high)]
+    order.intent = if view.knight: intIntercept else: intFocus
+    order.targetX = zombie.x
+    order.targetY = zombie.y
+    order.say = if view.knight: "on it" else: "loose"
+    if view.knight:
       var crowd = 0
-      for i in 0 ..< sim.zombies.len:
-        if not sim.zombies[i].alive:
-          continue
-        let (tx, ty) = sim.zombies[i].zombiePx()
-        if distSq(sim.players[cogIndex].x + CollisionW div 2,
-                  sim.players[cogIndex].y + CollisionH div 2,
-                  tx, ty) <= params.knightCrowdPx * params.knightCrowdPx:
+      for target in view.zombies:
+        if distSq(view.heroX, view.heroY, target.x, target.y) <= params.knightCrowdPx * params.knightCrowdPx:
           inc crowd
       if crowd >= params.knightCrowdCount:
-        let gate = gateCentre(sim)
-        let give = pointToward(
-          sim.players[cogIndex].x + CollisionW div 2,
-          sim.players[cogIndex].y + CollisionH div 2,
-          gate.x, gate.y, params.knightGivePx)
+        let give = pointToward(view.heroX, view.heroY, view.gateX, view.gateY, params.knightGivePx)
         order.intent = intFallBack
         order.targetX = give.x
         order.targetY = give.y
         order.say = "back"
     else:
-      # Distance is the archer's whole role: anything this close and it is
-      # already dead if it stops to shoot.
-      let panic = max(1, sim.config.archerPanicPx)
-      var threatened = false
-      for i in 0 ..< sim.zombies.len:
-        if not sim.zombies[i].alive:
-          continue
-        let (tx, ty) = sim.zombies[i].zombiePx()
-        if distSq(sim.players[cogIndex].x + CollisionW div 2,
-                  sim.players[cogIndex].y + CollisionH div 2,
-                  tx, ty) <= panic * panic:
-          threatened = true
+      for target in view.zombies:
+        if distSq(view.heroX, view.heroY, target.x, target.y) <= view.panicPx * view.panicPx:
+          order.intent = intFallBack
+          order.targetX = 120
+          order.targetY = view.heroY
+          order.say = "back"
           break
-      if threatened:
-        order.intent = intFallBack
-        order.targetX = 120
-        order.targetY = sim.players[cogIndex].y + CollisionH div 2
-        order.say = "back"
-    result.orders.add(order)
+  result.orders.add(order)

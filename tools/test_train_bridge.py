@@ -1,4 +1,4 @@
-"""Exercise all certified Knights & Archers variants through the numeric protocol."""
+"""Exercise numeric tasks and production-parity language decisions."""
 
 import json
 import random
@@ -100,9 +100,57 @@ def check_simultaneous_views(binary: Path) -> None:
     assert next_teachers[0] == next_teachers[1]
 
 
+def play_language(binary: Path, variant: str) -> None:
+    process = subprocess.Popen(
+        [str(binary), str(MANIFEST), variant, "--language"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        text=True, bufsize=1,
+    )
+    assert process.stdin is not None and process.stdout is not None
+
+    def request(payload: dict) -> dict:
+        process.stdin.write(json.dumps(payload) + "\n")
+        process.stdin.flush()
+        return json.loads(process.stdout.readline())
+
+    try:
+        observation = request({"kind": "reset", "seed": "kaz-language-" + variant, "players": 4})
+        assert observation["inference_mode"] == "text_action"
+        initial = observation
+        rejected = request({"kind": "step", "decision_id": initial["decision_id"], "response": "not json"})
+        assert rejected["kind"] == "rejected" and rejected["observation"] == initial
+        consumed = request({"kind": "step", "decision_id": initial["decision_id"], "response": "{}"})
+        assert consumed["kind"] == "consumed_rejection"
+        assert len(consumed["action"]["cogs"]) == 1
+        assert consumed["action"]["cogs"][0]["id"] == initial["semantic_view"]["you"]["id"]
+        observation = consumed["observation"]
+        decisions = 1
+        while observation["kind"] == "decision":
+            assert observation["inference_mode"] == "text_action"
+            assert observation["messages"][0]["role"] == "system"
+            assert "cogs" in observation["action_schema"]["properties"]
+            teacher = request({"kind": "teacher"})["response"]
+            action = json.loads(teacher)
+            assert len(action["cogs"]) == 1
+            assert action["cogs"][0]["id"] == observation["semantic_view"]["you"]["id"]
+            applied = request({"kind": "step", "decision_id": observation["decision_id"], "response": teacher})
+            assert applied["kind"] == "accepted" and applied["action"] == action
+            observation = applied["observation"]
+            decisions += 1
+            assert decisions <= 500
+        assert observation["kind"] == "terminal"
+        assert set(observation["scores"]) == {str(i) for i in range(4)}
+        print(variant, "language", decisions, "decisions; retry and consumed fallback passed")
+    finally:
+        process.stdin.close()
+        process.stdout.close()
+        assert process.wait(timeout=5) == 0
+
+
 if __name__ == "__main__":
     binary = Path(sys.argv[1]).resolve()
     check_simultaneous_views(binary)
     for variant in ("default", "horde-short", "horde-hard", "horde-tough"):
+        play_language(binary, variant)
         for teacher in (True, False):
             play(binary, variant, teacher)

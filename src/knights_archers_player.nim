@@ -13,8 +13,8 @@
 ##     --run /bin/knights-archers-player --secret-env PLAYER_PROMPT="<your strategy>"
 
 import
-  std/[json, options, os, strutils],
-  bitworld/spriteprotocol,
+  std/[json, monotimes, options, os, strutils, times],
+  bitworld/[spriteprotocol, decision_trajectory],
   curly, whisky,
   kaz/[directives, llm]
 
@@ -26,7 +26,7 @@ const
   ReconnectAttempts = 6      ## 6 x 500 ms of re-dialling after a live socket
                              ## dies, before accepting the game is gone.
 
-proc registrationBlob(kind, scripted, policy: string): string =
+proc registrationBlob*(kind, scripted, policy: string): string =
   var node = %*{
     "type": "register",
     "kind": kind,
@@ -38,7 +38,7 @@ proc registrationBlob(kind, scripted, policy: string): string =
     node["scripted"] = newJNull()
   blobFromSpriteChat($node)
 
-proc readyBlob(): string =
+proc readyBlob*(): string =
   ## The Sprite v1 player-ready packet (0x85). Legitimate here in a way it is
   ## not for an ordinary player client: this seat sends NO inputs at all (the
   ## server computes every actuator mask), so the dead-reckoning hazard
@@ -124,19 +124,45 @@ when isMainModule:
               "source": "llm"
             }
             let view = decision["view"]
-            let timeoutSeconds = max(1,
-              (decision["timeout_ms"].getInt() + 999) div 1000)
+            let timeoutSeconds = max(1, (decision["timeout_ms"].getInt() + 999) div 1000)
+            var evidence = newDecisionAttempt($decision["id"].getInt() & "-" &
+              $decision["slot"].getInt(), label, if client.disabled: aoFallback else: aoModel)
             if client.disabled:
               reply["source"] = %"fallback"
               reply["cause"] = %"no_credentials"
             else:
-              let request = client.requestFor(
-                systemPromptFor(view["you"]["role"].getStr()),
-                userMessage(prompt, $view), -1)
-              let response = client.curl.post(request.url, request.headers,
-                request.body, timeoutSeconds)
-              reply["action"] = extractJsonObject(
-                client.textOf(response, "", request.url))
+              let system = systemPromptFor(view["you"]["role"].getStr())
+              let user = userMessage(prompt, $view)
+              let request = client.requestFor(system, user, decision["slot"].getInt())
+              evidence.prompt = %*[{"role": "system", "content": system},
+                {"role": "user", "content": user}]
+              evidence.request = parseJson(request.body)
+              evidence.model = some(client.model)
+              evidence.decoder = %*{"temperature": client.temperature,
+                "max_tokens": client.maxOutputTokens}
+              socket.send($( %*{"type": "attempt_started", "protocol": "kaz.player.v2",
+                "id": decision["id"], "training_attempt": attemptEvidenceJson(evidence)}))
+              let started = getMonoTime()
+              let response = client.curl.post(request.url, request.headers, request.body, timeoutSeconds)
+              evidence.latencyMs = some(float((getMonoTime() - started).inMilliseconds))
+              evidence.responseEvidence(response.headers, response.body)
+              socket.send($( %*{"type": "attempt_response", "protocol": "kaz.player.v2",
+                "id": decision["id"], "training_attempt": attemptEvidenceJson(evidence)}))
+              let completion = client.textOf(response)
+              if completion.payload.isSome:
+                evidence.completionEvidence(completion.payload.get())
+                evidence.response = %completion.text
+              if completion.ok:
+                let proposal = jsonProposal(completion.text)
+                if proposal.ok:
+                  reply["action"] = proposal.node
+                else:
+                  reply["source"] = %"fallback"
+                  reply["cause"] = %"parse_error"
+              else:
+                reply["source"] = %"fallback"
+                reply["cause"] = %completion.cause
+            reply["training_attempt"] = attemptEvidenceJson(evidence)
             socket.send($reply)
           continue
         if message.kind != BinaryMessage:
@@ -148,7 +174,7 @@ when isMainModule:
           socket.send(registrationBlob(kind, scripted, label), BinaryMessage)
         socket.send(readyBlob(), BinaryMessage)
     except CatchableError as error:
-      echo "knights-archers player: socket closed (", error.msg, ")"
+      echo "knights-archers player: socket closed"
     # NEVER exit while the game is still serving: a seat that drops keeps its    # cogs for the whole episode and revives on reconnect, so a dropped socket
     # mid-episode is worth re-dialling and re-registering. Bounded on both
     # counts — a session that never received a frame means the game is winding

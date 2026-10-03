@@ -18,14 +18,16 @@ const Ids = @["KNIGHT-alpha"]
 const Cogs = @[0]
 
 proc parseOne(text: string): SquadDirective =
-  parseSquadDirective(extractJsonObject(text), Ids, Cogs, 40, 329, 1234, 658)
+  let json = jsonProposal(text)
+  doAssert json.ok
+  let parsed = parseSquadDirective(json.node, Ids, Cogs, 40, 329, 1234, 658)
+  doAssert parsed.ok
+  parsed.directive
 
 proc parseFails(text: string): bool =
-  try:
-    discard parseOne(text)
-    false
-  except CatchableError:
-    true
+  let json = jsonProposal(text)
+  if not json.ok: return true
+  not parseSquadDirective(json.node, Ids, Cogs, 40, 329, 1234, 658).ok
 
 block prosePrefixedAndFencedJson:
   let a = parseOne("""Sure! Here is my order:

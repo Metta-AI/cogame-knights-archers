@@ -15,7 +15,7 @@
 ## happened to be lenient.
 
 import
-  std/[json, strutils, unicode],
+  std/[json, parsejson, streams, strutils, unicode],
   sim_types
 
 type
@@ -99,16 +99,28 @@ proc parseIntent*(text: string): Intent =
       return intent
   intIntercept
 
-proc extractJsonObject*(text: string): JsonNode =
-  ## The outermost balanced `{...}` in a model reply, tolerating markdown
-  ## fences and any prose the model prefixed or suffixed. Falls back to
-  ## first-brace..last-brace when the scan finds no balanced pair, which is
-  ## what recovers a reply whose braces sit inside a quoted string.
-  var
-    depth = 0
-    start = -1
-    inString = false
-    escaped = false
+type JsonProposal* = object
+  ok*: bool
+  node*: JsonNode
+  reason*: string
+
+proc parseJsonObject*(body: string): JsonProposal =
+  var parser: JsonParser
+  parser.open(newStringStream(body), "commander response")
+  defer: parser.close()
+  while true:
+    parser.next()
+    if parser.kind == jsonError:
+      return JsonProposal(node: newJNull(), reason: parser.errorMsg())
+    if parser.kind == jsonEof: break
+  JsonProposal(ok: true, node: parseJson(body))
+
+proc jsonProposal*(text: string): JsonProposal =
+  ## Same fence/prose and quoted-brace grammar for native and language clients.
+  var depth = 0
+  var start = -1
+  var inString = false
+  var escaped = false
   for i, ch in text:
     if inString:
       if escaped: escaped = false
@@ -124,21 +136,20 @@ proc extractJsonObject*(text: string): JsonNode =
       if depth > 0:
         dec depth
         if depth == 0 and start >= 0:
-          try:
-            return parseJson(text[start .. i])
-          except CatchableError:
-            start = -1
+          let proposal = parseJsonObject(text[start .. i])
+          if proposal.ok: return proposal
+          start = -1
     else: discard
-  let
-    first = text.find('{')
-    last = text.rfind('}')
+  let first = text.find('{')
+  let last = text.rfind('}')
   if first < 0 or last <= first:
-    var head = text.strip()
-    if head.runeLen > 160:
-      head = head.truncateRunes(160) & "..."
-    raise newException(
-      DirectiveError, "no JSON object in reply: " & head.replace("\n", " "))
-  parseJson(text[first .. last])
+    return JsonProposal(node: newJNull(), reason: "no JSON object in response")
+  parseJsonObject(text[first .. last])
+
+proc extractJsonObject*(text: string): JsonNode =
+  let proposal = jsonProposal(text)
+  if not proposal.ok: raise newException(DirectiveError, proposal.reason)
+  proposal.node
 
 proc readCoord(node: JsonNode): tuple[ok: bool, value: int] =
   ## One target/face coordinate: an int, a float, or a numeric string.
@@ -217,12 +228,17 @@ proc cogEntries(payload: JsonNode): seq[tuple[id: string, node: JsonNode]] =
         let id = if item{"id"}.getStr().len > 0: item{"id"}.getStr() else: key
         result.add((id, item))
 
+type DirectiveProposal* = object
+  ok*: bool
+  directive*: SquadDirective
+  reason*: string
+
 proc parseSquadDirective*(
   payload: JsonNode,
   commandedIds: seq[string],
   commandedCogs: seq[int],
   defaultX, defaultY, maxX, maxY: int
-): SquadDirective =
+): DirectiveProposal =
   ## Turns one parsed reply into a legal directive, REPAIRING every field the
   ## schema bounds rather than rejecting the reply:
   ##
@@ -240,12 +256,12 @@ proc parseSquadDirective*(
   ## * `say`       truncated to MaxSayRunes on a rune boundary, then the
   ##               starter's printable-ASCII shout filter.
   ##
-  ## Raises DirectiveError only when NO usable cog entry can be recovered —
+  ## Returns rejection only when no usable cog entry can be recovered —
   ## that is the one condition the retry and then the scripted fallback exist
   ## for.
   doAssert commandedIds.len == commandedCogs.len
-  result.note = sanitizeNote(payload{"note"}.getStr())
-  result.source = dsLlm
+  result.directive.note = sanitizeNote(payload{"note"}.getStr())
+  result.directive.source = dsLlm
   var
     claimed = newSeq[bool](commandedIds.len)
     byPosition = 0
@@ -293,17 +309,11 @@ proc parseSquadDirective*(
     orders[slot].faceY = face.y
     orders[slot].say = sanitizeSay(node{"say"}.getStr())
   if matched == 0:
-    raise newException(DirectiveError, "reply named no commanded cog")
-  result.orders = orders
+    return DirectiveProposal(reason: "reply named no commanded cog")
+  result.directive.orders = orders
+  result.ok = true
 
-proc directiveRecord*(
-  directive: SquadDirective,
-  wave, turn, seat: int,
-  alias, role: string
-): JsonNode =
-  ## The replay chat record for one turn's directive. Re-applied at playback
-  ## into NON-HASHED sim fields only: it drives the broadcast feed and
-  ## tools/replay_summary.py and can never affect the simulation.
+proc actionJson*(directive: SquadDirective): JsonNode =
   var cogs = newJArray()
   for order in directive.orders:
     var item = %*{
@@ -317,18 +327,17 @@ proc directiveRecord*(
     else:
       item["face"] = newJNull()
     cogs.add(item)
-  %*{
-    "k": "directive",
-    "wave": wave,
-    "turn": turn,
-    "seat": seat,
-    "alias": alias,
-    "role": role,
-    "source": $directive.source,
-    "latency_ms": directive.latencyMs,
-    "note": directive.note,
-    "cogs": cogs
-  }
+  %*{"note": directive.note, "cogs": cogs}
+
+proc directiveRecord*(directive: SquadDirective, wave, turn, seat: int,
+    alias, role: string): JsonNode =
+  ## Preserve the stored replay record's leading discriminant.
+  result = %*{"k": "directive", "wave": wave, "turn": turn, "seat": seat,
+    "alias": alias, "role": role, "source": $directive.source,
+    "latency_ms": directive.latencyMs}
+  let action = directive.actionJson()
+  result["note"] = action["note"]
+  result["cogs"] = action["cogs"]
 
 proc boundedDirectiveRecord*(
   directive: SquadDirective,

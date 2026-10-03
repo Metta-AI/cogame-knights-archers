@@ -1,11 +1,11 @@
 import
-  std/[algorithm, json, locks, monotimes, nativesockets, os, strutils, tables, times],
+  std/[algorithm, json, locks, monotimes, nativesockets, options, os, strutils, tables, times],
   supersnappy,
   bitworld/client as bitworldClient, bitworld/profile, bitworld/spriteprotocol,
-  bitworld/runtime,
+  bitworld/runtime, bitworld/decision_trajectory,
   curly, mummy,
   sim, global, replays, broadcast, replay_runtime, events, wire_constants,
-  control, directives, baselines, decide
+  control, directives, baselines, decide, training_capture
 
 when defined(posix):
   from std/posix import SHUT_RDWR, shutdown
@@ -15,6 +15,10 @@ type
     server: Server
     clientSocket: SocketHandle
     clientId: uint64
+
+  QueuedDecisionMessage = object
+    receivedAt: MonoTime
+    data: string
 
   WebSocketAppState = object
     lock: Lock
@@ -30,7 +34,7 @@ type
     inputPressedMasks: Table[WebSocket, uint8]
     lastAppliedMasks: Table[WebSocket, uint8]
     chatMessages: Table[WebSocket, string]
-    actionMessages: Table[WebSocket, string]
+    actionMessages: Table[WebSocket, seq[QueuedDecisionMessage]]
     playerIndices: Table[WebSocket, int]
     playerAddresses: Table[WebSocket, string]
     playerSlots: Table[WebSocket, int]
@@ -162,8 +166,7 @@ const
                              ## answering this long after the artifacts are
                              ## written, then the process exits.
   # SpriteClientReady (0x85) and SpriteClientDebugSprite (0x86) now come from
-  # bitworld/spriteprotocol: the pin carries both, and still keeps ButtonC,
-  # which the grenade input bit needs.
+  # bitworld/spriteprotocol supplies the supported client message kinds.
 
 proc liveProgressMaxTick(config: GameConfig): int =
   ## Returns the live viewer tick-bar budget.
@@ -354,13 +357,16 @@ proc isPlayerWebSocket(websocket: WebSocket): bool =
       websocket notin appState.rewardViewers
 
 proc exchangeDecisions(
-  requests: seq[JsonNode], timeoutMs: int
-): seq[string] {.gcsafe.} =
+  requests: seq[JsonNode], timeoutMs: int, publishGlobal: proc() {.closure.}
+): seq[string] =
   ## Send every private observation before waiting for any action. The one
   ## deadline applies to the batch, so four seats remain simultaneous.
   result = newSeq[string](requests.len)
   var sockets = newSeq[WebSocket](requests.len)
   var connected = newSeq[bool](requests.len)
+  var stages = newSeq[int](requests.len)
+  var attempts = newSeq[JsonNode](requests.len)
+  for node in attempts.mitems: node = newJNull()
   {.gcsafe.}:
     withLock appState.lock:
       for position, request in requests:
@@ -376,20 +382,81 @@ proc exchangeDecisions(
         websocket.send($requests[position])
 
     let deadline = getMonoTime() + initDuration(milliseconds = timeoutMs)
-    while getMonoTime() < deadline:
+    var nextPublication = getMonoTime()
+    while true:
       var pending = false
       withLock appState.lock:
         for position, websocket in sockets:
           if not connected[position] or result[position].len > 0:
             continue
           if appState.actionMessages.hasKey(websocket):
-            result[position] = appState.actionMessages[websocket]
+            let messages = appState.actionMessages[websocket]
             appState.actionMessages.del(websocket)
-          else:
-            pending = true
-      if not pending:
+            for message in messages:
+              if result[position].len > 0: break
+              let raw = message.data
+              let parsed = parseJsonObject(raw)
+              if not parsed.ok:
+                result[position] = $( %*{"type": "action", "protocol": "kaz.player.v2",
+                  "id": requests[position]["id"], "source": "fallback", "cause": "parse_error",
+                  "training_attempt": attempts[position]})
+                break
+              let answer = parsed.node
+              if answer{"id"}.getInt() != requests[position]["id"].getInt(): continue
+              let kind = answer{"type"}.getStr()
+              if kind in ["attempt_started", "attempt_response", "action"]:
+                var valid = answer{"protocol"}.getStr() == "kaz.player.v2"
+                let supplied = if answer.hasKey("training_attempt"): answer["training_attempt"] else: newJNull()
+                if supplied.kind == JObject:
+                  let expected = attemptEvidenceJson(newDecisionAttempt("wire", "wire", aoUnknown))
+                  for field in expected.keys: valid = valid and supplied.hasKey(field)
+                  for field in supplied.keys: valid = valid and expected.hasKey(field)
+                if kind != "action":
+                  valid = valid and supplied.kind == JObject
+                if stages[position] > 0:
+                  valid = valid and supplied.kind == JObject
+                  if supplied.kind == JObject:
+                    for field in ["attempt_id", "policy", "origin", "prompt", "request"]:
+                      valid = valid and supplied{field} == attempts[position]{field}
+                    if stages[position] == 2:
+                      for field in ["raw_response", "response_headers", "provider_request_id", "platform_call_id", "latency_ms"]:
+                        valid = valid and supplied{field} == attempts[position]{field}
+                if valid and kind == "attempt_started":
+                  valid = valid and stages[position] == 0 and
+                    supplied{"raw_response"}.kind == JNull and
+                    supplied{"response"}.kind == JNull and
+                    supplied{"platform_call_id"}.kind == JNull and
+                    supplied{"latency_ms"}.kind == JNull
+                elif valid and kind == "attempt_response":
+                  valid = valid and stages[position] == 1 and
+                    supplied{"raw_response"}.kind != JNull and
+                    supplied{"latency_ms"}.kind != JNull
+                if not valid:
+                  result[position] = $( %*{"type": "action", "protocol": "kaz.player.v2",
+                    "id": requests[position]["id"], "source": "fallback", "cause": "parse_error",
+                    "training_attempt": attempts[position]})
+                elif kind == "action":
+                  if message.receivedAt < deadline:
+                    result[position] = raw
+                  elif supplied.kind == JObject:
+                    # Keep actual late provider evidence, but never select its action.
+                    attempts[position] = supplied
+                else:
+                  attempts[position] = supplied
+                  stages[position] = if kind == "attempt_started": 1 else: 2
+          if result[position].len == 0: pending = true
+      if not pending or getMonoTime() >= deadline:
         break
+      if getMonoTime() >= nextPublication:
+        publishGlobal()
+        nextPublication = getMonoTime() + initDuration(milliseconds = 100)
       sleep(10)
+
+    for position, request in requests:
+      if result[position].len == 0 and attempts[position].kind != JNull:
+        result[position] = $( %*{"type": "action", "protocol": "kaz.player.v2",
+          "id": request["id"], "source": "fallback", "cause": "timeout",
+          "training_attempt": attempts[position]})
 
 proc removeWebSocketState(websocket: WebSocket): int =
   ## Removes websocket-owned state and returns its former player index.
@@ -905,11 +972,13 @@ proc websocketHandler(
     if message.kind == Ping:
       websocket.send(message.data, Pong)
     elif message.kind == TextMessage:
+      let receivedAt = getMonoTime()
       {.gcsafe.}:
         withLock appState.lock:
           if websocket.isPlayerWebSocket() and
               websocket in appState.playerIndices:
-            appState.actionMessages[websocket] = message.data
+            appState.actionMessages.mgetOrPut(websocket, @[]).add(
+              QueuedDecisionMessage(receivedAt: receivedAt, data: message.data))
     elif message.kind == BinaryMessage:
       {.gcsafe.}:
         withLock appState.lock:
@@ -1161,8 +1230,6 @@ proc clearPressedInputMask(input: var InputState, mask: uint8) =
     input.attack = false
   if (mask and ButtonB) != 0:
     input.b = false
-  if (mask and ButtonC) != 0:
-    input.c = false
 
 proc clearPressedInputMasks(
   inputs: var seq[InputState],
@@ -1291,6 +1358,11 @@ proc runServerLoop*(
   var config =
     if replayLoaded: move(initializedReplay.config)
     else: initialConfig
+  let trajectoryUri = getEnv("COGAME_SAVE_TRAJECTORY_URI")
+  let capture = if trajectoryUri.len > 0:
+    some(newMatchCapture(getEnv("COWORLD_EPISODE_ID"), getEnv("COWORLD_GAME_VERSION"),
+      getEnv("COWORLD_SOURCE_REVISION"), config.seed))
+    else: none(MatchCapture)
   var
     replayWriter = openReplayWriter(saveReplayPath, config.configJson())
     replayPlayer =
@@ -1404,6 +1476,91 @@ proc runServerLoop*(
       if replayLoaded: move(initializedReplay.tracker)
       else: initBroadcastTracker()
 
+  proc publishGlobalFrame(frameEvents: JsonNode) =
+    ## The simulation owner publishes its current public scene before model
+    ## waiting and throughout shutdown; socket workers never read simulation state.
+    var
+      globalViewers: seq[WebSocket] = @[]
+      globalStates: seq[GlobalViewerState] = @[]
+    {.gcsafe.}:
+      withLock appState.lock:
+        for websocket, state in appState.globalViewers.pairs:
+          globalViewers.add(websocket)
+          globalStates.add(state)
+    for i in 0 ..< globalViewers.len:
+      var nextState: GlobalViewerState
+      let packet =
+        if replayLoaded:
+          sim.buildReplayViewerPacket(
+            replayPlayer,
+            globalStates[i],
+            nextState,
+            frameEvents
+          )
+        else:
+          sim.buildSpriteProtocolUpdates(
+            globalStates[i],
+            nextState,
+            liveOverlays,
+            sim.tickCount,
+            replayPlayer.playing,
+            playbackSpeed(liveSpeedIndex),
+            liveProgressMaxTick(config),
+            replayPlayer.looping,
+            false,
+            -1
+          )
+      if packet.len == 0:
+        continue
+      try:
+        # The JSON chrome channel is REPLAY-ONLY. It rides the SAME binary sprite
+        # channel as the board — as the label of a reserved never-drawn 1×1
+        # sprite (BroadcastChromeSpriteId) — because that is the ONLY channel
+        # that survives a hosted replay. The legacy opt-in `TextMessage` path
+        # never routes the client→server `hud:on` through the recorded stream,
+        # so hosted the HUD froze at its DOM defaults while the board played.
+        # Piggybacking on the binary channel makes the chrome survive every
+        # playback path (live serve, generic client, hosted replay), with no
+        # opt-in. The generic bitworld client simply ignores an unknown sprite id.
+        # Ship in WS-frame-sized chunks at message boundaries: the hosted replay
+        # viewer closes any frame over 1 MiB (1009 "message too big"). The client
+        # accumulates sprite/object state across binary messages, so N chunks are
+        # equivalent to one packet. The init frame (banded map + atlas + chrome)
+        # is the only one that ever exceeds the cap; steady-state frames pass
+        # through as a single chunk.
+        for chunk in global.chunkSpritePacket(packet, MaxWsFrameBytes):
+          globalViewers[i].send(blobFromBytes(chunk), BinaryMessage)
+        {.gcsafe.}:
+          withLock appState.lock:
+            if globalViewers[i] in appState.globalViewers:
+              # The websocket thread keeps writing viewer INPUT into this table
+              # entry while the frame was being built from an earlier snapshot.
+              # Blindly storing nextState would erase any input that arrived in
+              # between — a seek/command/click landing there was silently lost
+              # (scrub-back from the end screen was the visible casualty).
+              # Merge: render state comes from nextState, but the latest mouse
+              # fields and any not-yet-collected one-shot inputs survive.
+              let pending = appState.globalViewers[globalViewers[i]]
+              var merged = nextState
+              merged.mouseX = pending.mouseX
+              merged.mouseY = pending.mouseY
+              merged.mouseLayer = pending.mouseLayer
+              merged.mouseDown = pending.mouseDown
+              if pending.clickPending:
+                merged.clickPending = true
+              if pending.replaySeekTick >= 0:
+                merged.replaySeekTick = pending.replaySeekTick
+              if pending.replayCommands.len > 0:
+                merged.replayCommands.add(pending.replayCommands)
+              if pending.povSelectPending >= -1:
+                merged.povSelectPending = pending.povSelectPending
+              appState.globalViewers[globalViewers[i]] = merged
+      except:
+        {.gcsafe.}:
+          withLock appState.lock:
+            discard markSocketClosed(globalViewers[i])
+
+
   while true:
     var
       pendingReplayUri = ""
@@ -1414,8 +1571,6 @@ proc runServerLoop*(
       downInputs: seq[InputState]
       downInputMasks: seq[uint8]
       pressedInputMasks: seq[uint8]
-      globalViewers: seq[WebSocket] = @[]
-      globalStates: seq[GlobalViewerState] = @[]
       rewardViewers: seq[WebSocket] = @[]
       playerViewerStates: seq[PlayerViewerState] = @[]
       replayCommands: seq[char] = @[]
@@ -1814,8 +1969,6 @@ proc runServerLoop*(
           for (websocket, chatText) in heldRegistrations:
             appState.chatMessages[websocket] = chatText
         for websocket, state in appState.globalViewers.pairs:
-          globalViewers.add(websocket)
-          globalStates.add(state)
           if state.replaySeekTick >= 0:
             replaySeekTicks.add(state.replaySeekTick)
           for command in state.replayCommands:
@@ -1958,8 +2111,12 @@ proc runServerLoop*(
         lastTurnKey = turnKey
         let turnsPerGame =
           if config.maxTicks > 0: max(1, config.maxTicks div turnTicks) else: 0
+        let observationHash = sim.gameHash()
+        publishGlobalFrame(newJArray())
         let records = engine.turn(sim, turnIndex, turnsPerGame,
-          elapsedSeconds, exchangeDecisions)
+          elapsedSeconds, proc(requests: seq[JsonNode], timeoutMs: int): seq[string] =
+            exchangeDecisions(requests, timeoutMs, proc() = publishGlobalFrame(newJArray())))
+        if capture.isSome: capture.get().beginTurn(engine, sim, observationHash)
         for record in records:
           replayWriter.writeChat(tickTime(sim.tickCount), 0, record)
         for seat in 0 ..< engine.directives.len:
@@ -2072,6 +2229,12 @@ proc runServerLoop*(
           sim.phase = GameOver
           quitAfterFrame = true
           break
+        if capture.isSome:
+          var actualMasks = newSeq[uint8](stepInputs.len)
+          for seat, input in stepInputs: actualMasks[seat] = encodeInputMask(input)
+          capture.get().recordTick(actualMasks, sim)
+          if phaseBeforeStep == Playing and sim.phase != Playing:
+            capture.get().flushTurn(sim.tickCount, sim.phase == GameOver and sim.gameIndex + 1 >= config.maxGames)
         if sim.collectEvents:
           # Drained every tick, like the extractor's walk: the sink is a plain
           # seq on the sim and would otherwise grow for the whole match.
@@ -2127,6 +2290,8 @@ proc runServerLoop*(
     if not replayLoaded and config.fastMode:
       sockets.resetPlayerReady(playerIndices, sim.players.len)
 
+    publishGlobalFrame(frameEvents)
+
     var spritesOffFlags = newSeq[bool](sockets.len)
     {.gcsafe.}:
       withLock appState.lock:
@@ -2163,6 +2328,7 @@ proc runServerLoop*(
         {.gcsafe.}:
           withLock appState.lock:
             discard markSocketClosed(sockets[i])
+      publishGlobalFrame(newJArray())
 
     for websocket in rewardViewers:
       try:
@@ -2171,79 +2337,6 @@ proc runServerLoop*(
         {.gcsafe.}:
           withLock appState.lock:
             discard markSocketClosed(websocket)
-
-    for i in 0 ..< globalViewers.len:
-      var nextState: GlobalViewerState
-      let packet =
-        if replayLoaded:
-          sim.buildReplayViewerPacket(
-            replayPlayer,
-            globalStates[i],
-            nextState,
-            frameEvents
-          )
-        else:
-          sim.buildSpriteProtocolUpdates(
-            globalStates[i],
-            nextState,
-            liveOverlays,
-            sim.tickCount,
-            replayPlayer.playing,
-            playbackSpeed(liveSpeedIndex),
-            liveProgressMaxTick(config),
-            replayPlayer.looping,
-            false,
-            -1
-          )
-      if packet.len == 0:
-        continue
-      try:
-        # The JSON chrome channel is REPLAY-ONLY. It rides the SAME binary sprite
-        # channel as the board — as the label of a reserved never-drawn 1×1
-        # sprite (BroadcastChromeSpriteId) — because that is the ONLY channel
-        # that survives a hosted replay. The legacy opt-in `TextMessage` path
-        # never routes the client→server `hud:on` through the recorded stream,
-        # so hosted the HUD froze at its DOM defaults while the board played.
-        # Piggybacking on the binary channel makes the chrome survive every
-        # playback path (live serve, generic client, hosted replay), with no
-        # opt-in. The generic bitworld client simply ignores an unknown sprite id.
-        # Ship in WS-frame-sized chunks at message boundaries: the hosted replay
-        # viewer closes any frame over 1 MiB (1009 "message too big"). The client
-        # accumulates sprite/object state across binary messages, so N chunks are
-        # equivalent to one packet. The init frame (banded map + atlas + chrome)
-        # is the only one that ever exceeds the cap; steady-state frames pass
-        # through as a single chunk.
-        for chunk in global.chunkSpritePacket(packet, MaxWsFrameBytes):
-          globalViewers[i].send(blobFromBytes(chunk), BinaryMessage)
-        {.gcsafe.}:
-          withLock appState.lock:
-            if globalViewers[i] in appState.globalViewers:
-              # The websocket thread keeps writing viewer INPUT into this table
-              # entry while the frame was being built from an earlier snapshot.
-              # Blindly storing nextState would erase any input that arrived in
-              # between — a seek/command/click landing there was silently lost
-              # (scrub-back from the end screen was the visible casualty).
-              # Merge: render state comes from nextState, but the latest mouse
-              # fields and any not-yet-collected one-shot inputs survive.
-              let pending = appState.globalViewers[globalViewers[i]]
-              var merged = nextState
-              merged.mouseX = pending.mouseX
-              merged.mouseY = pending.mouseY
-              merged.mouseLayer = pending.mouseLayer
-              merged.mouseDown = pending.mouseDown
-              if pending.clickPending:
-                merged.clickPending = true
-              if pending.replaySeekTick >= 0:
-                merged.replaySeekTick = pending.replaySeekTick
-              if pending.replayCommands.len > 0:
-                merged.replayCommands.add(pending.replayCommands)
-              if pending.povSelectPending >= -1:
-                merged.povSelectPending = pending.povSelectPending
-              appState.globalViewers[globalViewers[i]] = merged
-      except:
-        {.gcsafe.}:
-          withLock appState.lock:
-            discard markSocketClosed(globalViewers[i])
 
     if profileShouldDump(sim.gameTicksElapsed()):
       finishProfileTrace()
@@ -2272,6 +2365,9 @@ proc runServerLoop*(
         writeFile(eventsPath, collectedEvents.eventsJsonl(sim.tickCount))
         echo "Events written: ", eventsPath,
           " (", collectedEvents.len, " events, ", getFileSize(eventsPath), " bytes)"
+      if capture.isSome:
+        capture.get().finishMatch(sim)
+        capture.get().trajectory.writeEventsToUri(trajectoryUri)
       if runtimeConfig.resultsUri.len > 0:
         let scoresJson = sim.playerResultsJson() & "\n"
         runtimeConfig.writeResults(scoresJson)
@@ -2320,6 +2416,7 @@ proc runServerLoop*(
         let graceUntil =
           getMonoTime() + initDuration(seconds = ShutdownGraceSeconds)
         while getMonoTime() < graceUntil:
+          publishGlobalFrame(newJArray())
           sleep(200)
       httpServer.close()
       joinThread(serverThread)

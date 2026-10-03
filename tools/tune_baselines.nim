@@ -69,8 +69,7 @@ proc play(
       if sim.gameTicksElapsed() mod turnTicks == 0 and turnKey != lastTurnKey:
         lastTurnKey = turnKey
         for seat in 0 ..< sim.seatCount():
-          directives[seat] = scriptedDirective(
-            ctl, sim, kind, sim.commandedCogs(seat), params)
+          directives[seat] = scriptedDirective(sim.policyView(seat), kind, params)
           have[seat] = true
       for cogIndex in 0 ..< sim.players.len:
         let seat = sim.cogSeat(cogIndex)
