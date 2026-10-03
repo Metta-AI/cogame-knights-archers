@@ -158,6 +158,9 @@ jobs:
           nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/player" src/knights_archers_player.nim
           nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/malformed-player" tools/test_malformed_player.nim
           COWORLD_TEST_MALFORMED_PLAYER="$RUNNER_TEMP/malformed-player" python3 tools/test_native_trajectory.py "$RUNNER_TEMP/game" "$RUNNER_TEMP/player" "$RUNNER_TEMP/native-trajectories"
+          python3 -m venv "$RUNNER_TEMP/global-viewer-env"
+          "$RUNNER_TEMP/global-viewer-env/bin/pip" install "websockets==17.1"
+          "$RUNNER_TEMP/global-viewer-env/bin/python" tools/test_global_viewer.py "$RUNNER_TEMP/game" "$RUNNER_TEMP/player" "$RUNNER_TEMP/global-viewer-proof"
           nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/check-replay" tools/check_training_replay.nim
           for episode in "$RUNNER_TEMP/native-trajectories"/*; do
             "$RUNNER_TEMP/check-replay" "$episode/replay.bitreplay" "$episode/trajectory.jsonl"

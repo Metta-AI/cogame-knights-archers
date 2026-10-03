@@ -353,8 +353,8 @@ proc isPlayerWebSocket(websocket: WebSocket): bool =
       websocket notin appState.rewardViewers
 
 proc exchangeDecisions(
-  requests: seq[JsonNode], timeoutMs: int
-): seq[string] {.gcsafe.} =
+  requests: seq[JsonNode], timeoutMs: int, publishGlobal: proc() {.closure.}
+): seq[string] =
   ## Send every private observation before waiting for any action. The one
   ## deadline applies to the batch, so four seats remain simultaneous.
   result = newSeq[string](requests.len)
@@ -378,7 +378,11 @@ proc exchangeDecisions(
         websocket.send($requests[position])
 
     let deadline = getMonoTime() + initDuration(milliseconds = timeoutMs)
+    var nextPublication = getMonoTime()
     while getMonoTime() < deadline:
+      if getMonoTime() >= nextPublication:
+        publishGlobal()
+        nextPublication = getMonoTime() + initDuration(milliseconds = 100)
       var pending = false
       withLock appState.lock:
         for position, websocket in sockets:
@@ -1461,6 +1465,91 @@ proc runServerLoop*(
       if replayLoaded: move(initializedReplay.tracker)
       else: initBroadcastTracker()
 
+  proc publishGlobalFrame(frameEvents: JsonNode) =
+    ## The simulation owner publishes its current public scene before model
+    ## waiting and throughout shutdown; socket workers never read simulation state.
+    var
+      globalViewers: seq[WebSocket] = @[]
+      globalStates: seq[GlobalViewerState] = @[]
+    {.gcsafe.}:
+      withLock appState.lock:
+        for websocket, state in appState.globalViewers.pairs:
+          globalViewers.add(websocket)
+          globalStates.add(state)
+    for i in 0 ..< globalViewers.len:
+      var nextState: GlobalViewerState
+      let packet =
+        if replayLoaded:
+          sim.buildReplayViewerPacket(
+            replayPlayer,
+            globalStates[i],
+            nextState,
+            frameEvents
+          )
+        else:
+          sim.buildSpriteProtocolUpdates(
+            globalStates[i],
+            nextState,
+            liveOverlays,
+            sim.tickCount,
+            replayPlayer.playing,
+            playbackSpeed(liveSpeedIndex),
+            liveProgressMaxTick(config),
+            replayPlayer.looping,
+            false,
+            -1
+          )
+      if packet.len == 0:
+        continue
+      try:
+        # The JSON chrome channel is REPLAY-ONLY. It rides the SAME binary sprite
+        # channel as the board — as the label of a reserved never-drawn 1×1
+        # sprite (BroadcastChromeSpriteId) — because that is the ONLY channel
+        # that survives a hosted replay. The legacy opt-in `TextMessage` path
+        # never routes the client→server `hud:on` through the recorded stream,
+        # so hosted the HUD froze at its DOM defaults while the board played.
+        # Piggybacking on the binary channel makes the chrome survive every
+        # playback path (live serve, generic client, hosted replay), with no
+        # opt-in. The generic bitworld client simply ignores an unknown sprite id.
+        # Ship in WS-frame-sized chunks at message boundaries: the hosted replay
+        # viewer closes any frame over 1 MiB (1009 "message too big"). The client
+        # accumulates sprite/object state across binary messages, so N chunks are
+        # equivalent to one packet. The init frame (banded map + atlas + chrome)
+        # is the only one that ever exceeds the cap; steady-state frames pass
+        # through as a single chunk.
+        for chunk in global.chunkSpritePacket(packet, MaxWsFrameBytes):
+          globalViewers[i].send(blobFromBytes(chunk), BinaryMessage)
+        {.gcsafe.}:
+          withLock appState.lock:
+            if globalViewers[i] in appState.globalViewers:
+              # The websocket thread keeps writing viewer INPUT into this table
+              # entry while the frame was being built from an earlier snapshot.
+              # Blindly storing nextState would erase any input that arrived in
+              # between — a seek/command/click landing there was silently lost
+              # (scrub-back from the end screen was the visible casualty).
+              # Merge: render state comes from nextState, but the latest mouse
+              # fields and any not-yet-collected one-shot inputs survive.
+              let pending = appState.globalViewers[globalViewers[i]]
+              var merged = nextState
+              merged.mouseX = pending.mouseX
+              merged.mouseY = pending.mouseY
+              merged.mouseLayer = pending.mouseLayer
+              merged.mouseDown = pending.mouseDown
+              if pending.clickPending:
+                merged.clickPending = true
+              if pending.replaySeekTick >= 0:
+                merged.replaySeekTick = pending.replaySeekTick
+              if pending.replayCommands.len > 0:
+                merged.replayCommands.add(pending.replayCommands)
+              if pending.povSelectPending >= -1:
+                merged.povSelectPending = pending.povSelectPending
+              appState.globalViewers[globalViewers[i]] = merged
+      except:
+        {.gcsafe.}:
+          withLock appState.lock:
+            discard markSocketClosed(globalViewers[i])
+
+
   while true:
     var
       pendingReplayUri = ""
@@ -1471,8 +1560,6 @@ proc runServerLoop*(
       downInputs: seq[InputState]
       downInputMasks: seq[uint8]
       pressedInputMasks: seq[uint8]
-      globalViewers: seq[WebSocket] = @[]
-      globalStates: seq[GlobalViewerState] = @[]
       rewardViewers: seq[WebSocket] = @[]
       playerViewerStates: seq[PlayerViewerState] = @[]
       replayCommands: seq[char] = @[]
@@ -1871,8 +1958,6 @@ proc runServerLoop*(
           for (websocket, chatText) in heldRegistrations:
             appState.chatMessages[websocket] = chatText
         for websocket, state in appState.globalViewers.pairs:
-          globalViewers.add(websocket)
-          globalStates.add(state)
           if state.replaySeekTick >= 0:
             replaySeekTicks.add(state.replaySeekTick)
           for command in state.replayCommands:
@@ -2016,8 +2101,10 @@ proc runServerLoop*(
         let turnsPerGame =
           if config.maxTicks > 0: max(1, config.maxTicks div turnTicks) else: 0
         let observationHash = sim.gameHash()
+        publishGlobalFrame(newJArray())
         let records = engine.turn(sim, turnIndex, turnsPerGame,
-          elapsedSeconds, exchangeDecisions)
+          elapsedSeconds, proc(requests: seq[JsonNode], timeoutMs: int): seq[string] =
+            exchangeDecisions(requests, timeoutMs, proc() = publishGlobalFrame(newJArray())))
         if capture.isSome: capture.get().beginTurn(engine, sim, observationHash)
         for record in records:
           replayWriter.writeChat(tickTime(sim.tickCount), 0, record)
@@ -2192,6 +2279,8 @@ proc runServerLoop*(
     if not replayLoaded and config.fastMode:
       sockets.resetPlayerReady(playerIndices, sim.players.len)
 
+    publishGlobalFrame(frameEvents)
+
     var spritesOffFlags = newSeq[bool](sockets.len)
     {.gcsafe.}:
       withLock appState.lock:
@@ -2228,6 +2317,7 @@ proc runServerLoop*(
         {.gcsafe.}:
           withLock appState.lock:
             discard markSocketClosed(sockets[i])
+      publishGlobalFrame(newJArray())
 
     for websocket in rewardViewers:
       try:
@@ -2236,79 +2326,6 @@ proc runServerLoop*(
         {.gcsafe.}:
           withLock appState.lock:
             discard markSocketClosed(websocket)
-
-    for i in 0 ..< globalViewers.len:
-      var nextState: GlobalViewerState
-      let packet =
-        if replayLoaded:
-          sim.buildReplayViewerPacket(
-            replayPlayer,
-            globalStates[i],
-            nextState,
-            frameEvents
-          )
-        else:
-          sim.buildSpriteProtocolUpdates(
-            globalStates[i],
-            nextState,
-            liveOverlays,
-            sim.tickCount,
-            replayPlayer.playing,
-            playbackSpeed(liveSpeedIndex),
-            liveProgressMaxTick(config),
-            replayPlayer.looping,
-            false,
-            -1
-          )
-      if packet.len == 0:
-        continue
-      try:
-        # The JSON chrome channel is REPLAY-ONLY. It rides the SAME binary sprite
-        # channel as the board — as the label of a reserved never-drawn 1×1
-        # sprite (BroadcastChromeSpriteId) — because that is the ONLY channel
-        # that survives a hosted replay. The legacy opt-in `TextMessage` path
-        # never routes the client→server `hud:on` through the recorded stream,
-        # so hosted the HUD froze at its DOM defaults while the board played.
-        # Piggybacking on the binary channel makes the chrome survive every
-        # playback path (live serve, generic client, hosted replay), with no
-        # opt-in. The generic bitworld client simply ignores an unknown sprite id.
-        # Ship in WS-frame-sized chunks at message boundaries: the hosted replay
-        # viewer closes any frame over 1 MiB (1009 "message too big"). The client
-        # accumulates sprite/object state across binary messages, so N chunks are
-        # equivalent to one packet. The init frame (banded map + atlas + chrome)
-        # is the only one that ever exceeds the cap; steady-state frames pass
-        # through as a single chunk.
-        for chunk in global.chunkSpritePacket(packet, MaxWsFrameBytes):
-          globalViewers[i].send(blobFromBytes(chunk), BinaryMessage)
-        {.gcsafe.}:
-          withLock appState.lock:
-            if globalViewers[i] in appState.globalViewers:
-              # The websocket thread keeps writing viewer INPUT into this table
-              # entry while the frame was being built from an earlier snapshot.
-              # Blindly storing nextState would erase any input that arrived in
-              # between — a seek/command/click landing there was silently lost
-              # (scrub-back from the end screen was the visible casualty).
-              # Merge: render state comes from nextState, but the latest mouse
-              # fields and any not-yet-collected one-shot inputs survive.
-              let pending = appState.globalViewers[globalViewers[i]]
-              var merged = nextState
-              merged.mouseX = pending.mouseX
-              merged.mouseY = pending.mouseY
-              merged.mouseLayer = pending.mouseLayer
-              merged.mouseDown = pending.mouseDown
-              if pending.clickPending:
-                merged.clickPending = true
-              if pending.replaySeekTick >= 0:
-                merged.replaySeekTick = pending.replaySeekTick
-              if pending.replayCommands.len > 0:
-                merged.replayCommands.add(pending.replayCommands)
-              if pending.povSelectPending >= -1:
-                merged.povSelectPending = pending.povSelectPending
-              appState.globalViewers[globalViewers[i]] = merged
-      except:
-        {.gcsafe.}:
-          withLock appState.lock:
-            discard markSocketClosed(globalViewers[i])
 
     if profileShouldDump(sim.gameTicksElapsed()):
       finishProfileTrace()
@@ -2388,6 +2405,7 @@ proc runServerLoop*(
         let graceUntil =
           getMonoTime() + initDuration(seconds = ShutdownGraceSeconds)
         while getMonoTime() < graceUntil:
+          publishGlobalFrame(newJArray())
           sleep(200)
       httpServer.close()
       joinThread(serverThread)
