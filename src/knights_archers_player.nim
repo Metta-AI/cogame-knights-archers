@@ -124,7 +124,7 @@ when isMainModule:
               "source": "llm"
             }
             let view = decision["view"]
-            let timeoutSeconds = max(1, decision["timeout_ms"].getInt() div 1000)
+            let timeoutSeconds = max(1, (decision["timeout_ms"].getInt() + 999) div 1000)
             var evidence = newDecisionAttempt($decision["id"].getInt() & "-" &
               $decision["slot"].getInt(), label, if client.disabled: aoFallback else: aoModel)
             if client.disabled:

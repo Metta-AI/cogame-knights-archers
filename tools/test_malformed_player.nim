@@ -1,4 +1,4 @@
-## Actual native HTTP evidence followed by an invalid socket action frame.
+## Actual native HTTP evidence followed by an invalid or deliberately late action.
 import std/[json, monotimes, options, os, times]
 import bitworld/decision_trajectory
 import curly, whisky
@@ -34,7 +34,7 @@ while sent < 4:
     socket.send($( %*{"type": "attempt_started", "protocol": "kaz.player.v2",
       "id": decision["id"], "training_attempt": attemptEvidenceJson(evidence)}))
     let started = getMonoTime()
-    let response = client.curl.post(request.url, request.headers, request.body, 1)
+    let response = client.curl.post(request.url, request.headers, request.body, max(1, (decision["timeout_ms"].getInt() + 999) div 1000))
     evidence.latencyMs = some(float((getMonoTime() - started).inMilliseconds))
     evidence.responseEvidence(response.headers, response.body)
     let completion = client.textOf(response)
@@ -43,5 +43,11 @@ while sent < 4:
     evidence.response = %completion.text
     socket.send($( %*{"type": "attempt_response", "protocol": "kaz.player.v2",
       "id": decision["id"], "training_attempt": attemptEvidenceJson(evidence)}))
-    socket.send("invalid-final-socket-json")
+    if getEnv("COWORLD_TEST_DELAY_ACTION") == "1":
+      sleep(200)
+      socket.send($( %*{"type": "action", "protocol": "kaz.player.v2",
+        "id": decision["id"], "source": "llm", "action": parseJson(completion.text),
+        "training_attempt": attemptEvidenceJson(evidence)}))
+    else:
+      socket.send("invalid-final-socket-json")
     inc sent

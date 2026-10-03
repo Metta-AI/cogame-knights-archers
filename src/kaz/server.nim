@@ -16,6 +16,10 @@ type
     clientSocket: SocketHandle
     clientId: uint64
 
+  QueuedDecisionMessage = object
+    receivedAt: MonoTime
+    data: string
+
   WebSocketAppState = object
     lock: Lock
     replayServerMode: bool
@@ -30,7 +34,7 @@ type
     inputPressedMasks: Table[WebSocket, uint8]
     lastAppliedMasks: Table[WebSocket, uint8]
     chatMessages: Table[WebSocket, string]
-    actionMessages: Table[WebSocket, seq[string]]
+    actionMessages: Table[WebSocket, seq[QueuedDecisionMessage]]
     playerIndices: Table[WebSocket, int]
     playerAddresses: Table[WebSocket, string]
     playerSlots: Table[WebSocket, int]
@@ -379,10 +383,7 @@ proc exchangeDecisions(
 
     let deadline = getMonoTime() + initDuration(milliseconds = timeoutMs)
     var nextPublication = getMonoTime()
-    while getMonoTime() < deadline:
-      if getMonoTime() >= nextPublication:
-        publishGlobal()
-        nextPublication = getMonoTime() + initDuration(milliseconds = 100)
+    while true:
       var pending = false
       withLock appState.lock:
         for position, websocket in sockets:
@@ -391,8 +392,9 @@ proc exchangeDecisions(
           if appState.actionMessages.hasKey(websocket):
             let messages = appState.actionMessages[websocket]
             appState.actionMessages.del(websocket)
-            for raw in messages:
+            for message in messages:
               if result[position].len > 0: break
+              let raw = message.data
               let parsed = parseJsonObject(raw)
               if not parsed.ok:
                 result[position] = $( %*{"type": "action", "protocol": "kaz.player.v2",
@@ -434,13 +436,20 @@ proc exchangeDecisions(
                     "id": requests[position]["id"], "source": "fallback", "cause": "parse_error",
                     "training_attempt": attempts[position]})
                 elif kind == "action":
-                  result[position] = raw
+                  if message.receivedAt < deadline:
+                    result[position] = raw
+                  elif supplied.kind == JObject:
+                    # Keep actual late provider evidence, but never select its action.
+                    attempts[position] = supplied
                 else:
                   attempts[position] = supplied
                   stages[position] = if kind == "attempt_started": 1 else: 2
           if result[position].len == 0: pending = true
-      if not pending:
+      if not pending or getMonoTime() >= deadline:
         break
+      if getMonoTime() >= nextPublication:
+        publishGlobal()
+        nextPublication = getMonoTime() + initDuration(milliseconds = 100)
       sleep(10)
 
     for position, request in requests:
@@ -963,11 +972,13 @@ proc websocketHandler(
     if message.kind == Ping:
       websocket.send(message.data, Pong)
     elif message.kind == TextMessage:
+      let receivedAt = getMonoTime()
       {.gcsafe.}:
         withLock appState.lock:
           if websocket.isPlayerWebSocket() and
               websocket in appState.playerIndices:
-            appState.actionMessages.mgetOrPut(websocket, @[]).add(message.data)
+            appState.actionMessages.mgetOrPut(websocket, @[]).add(
+              QueuedDecisionMessage(receivedAt: receivedAt, data: message.data))
     elif message.kind == BinaryMessage:
       {.gcsafe.}:
         withLock appState.lock:
