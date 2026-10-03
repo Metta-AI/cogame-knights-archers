@@ -1,7 +1,7 @@
 ## Actual native HTTP evidence followed by an invalid socket action frame.
 import std/[json, monotimes, options, os, times]
 import bitworld/decision_trajectory
-import whisky
+import curly, whisky
 import kaz/llm
 import knights_archers_player
 
