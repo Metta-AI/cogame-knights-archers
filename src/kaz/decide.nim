@@ -429,7 +429,6 @@ proc turn*(
         {"role": "user", "content": userMessage(DefaultOperatorPrompt, $views[seat])}]
       teacher.parsedAction = directive.actionJson()
       teacher.response = %($teacher.parsedAction)
-      teacher.rawResponse = %($teacher.parsedAction)
       teacher.accepted = intentional
       engine.decisions[seat].attempts.add(teacher)
       if intentional:

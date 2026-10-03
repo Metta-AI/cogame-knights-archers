@@ -250,8 +250,9 @@ block aScriptedTeacherDoesNotClaimModelInference:
     check(teacher.origin == aoTeacher and teacher.accepted,
       "engine-owned scripted action is an intentional teacher target")
     check(teacher.model.isNone and teacher.request.kind == JNull and
-      teacher.decoder.kind == JNull and teacher.platformCallId.isNone,
-      "scripted teacher has no serving model, request, decoder, or native call")
+      teacher.decoder.kind == JNull and teacher.rawResponse.kind == JNull and
+      teacher.platformCallId.isNone,
+      "scripted teacher has no serving model, request, decoder, raw provider response, or native call")
     check(teacher.prompt.kind == JArray and
       teacher.parsedAction == decision.executedAction and
       teacher.response == %($decision.executedAction),
