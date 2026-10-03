@@ -1,6 +1,6 @@
 ## The game sends one private observation per seat before waiting for actions.
 
-import std/json
+import std/[json, options]
 import kaz/[sim, decide, control, directives]
 import bitworld/decision_trajectory
 import ./helpers
@@ -236,6 +236,26 @@ block modelResponseMustMatchExecutedProposal:
     for attempt in decision.attempts:
       check(not attempt.accepted, "mismatched model response cannot become a target")
       check(attempt.parsedAction != decision.executedAction, "independent proposal remains distinct from engine fallback")
+
+block aScriptedTeacherDoesNotClaimModelInference:
+  var world = llmWorld()
+  var engine = initDecisionEngine(world)
+  for seat in engine.seats.mitems:
+    seat.registered = true
+  discard engine.turn(world, 0, 24, 0,
+    proc(requests: seq[JsonNode], timeoutMs: int): seq[string] =
+      raise newException(ValueError, "scripted teacher must not call a model"))
+  for decision in engine.decisions:
+    let teacher = decision.attempts[0]
+    check(teacher.origin == aoTeacher and teacher.accepted,
+      "engine-owned scripted action is an intentional teacher target")
+    check(teacher.model.isNone and teacher.request.kind == JNull and
+      teacher.decoder.kind == JNull and teacher.platformCallId.isNone,
+      "scripted teacher has no serving model, request, decoder, or native call")
+    check(teacher.prompt.kind == JArray and
+      teacher.parsedAction == decision.executedAction and
+      teacher.response == %($decision.executedAction),
+      "teacher preserves the production prompt and exact applied directive")
 
 block anUnregisteredSeatStillPlaysPhalanx:
   var world = llmWorld()

@@ -430,9 +430,6 @@ proc turn*(
       teacher.parsedAction = directive.actionJson()
       teacher.response = %($teacher.parsedAction)
       teacher.rawResponse = %($teacher.parsedAction)
-      teacher.model = some(teacher.policy)
-      teacher.request = %*{"teacher": teacher.policy, "observation": views[seat]}
-      teacher.decoder = %*{"method": "deterministic"}
       teacher.accepted = intentional
       engine.decisions[seat].attempts.add(teacher)
       if intentional:
