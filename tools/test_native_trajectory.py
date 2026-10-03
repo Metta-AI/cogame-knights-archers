@@ -59,6 +59,8 @@ for flow in selected_flows:
             self.send_header("content-type", "application/json")
             self.send_header("content-length", str(len(encoded)))
             self.send_header("X-Softmax-Llm-Call-Id", call_id)
+            self.send_header("x-request-id", "provider_" + call_id)
+            self.send_header("X-Private-Receipt", "actual-provider-diagnostic")
             if flow in {"sampled", "greedy-tokens"}:
                 self.send_header("X-Coworld-Checkpoint-Sha256", "a" * 64)
                 self.send_header("X-Coworld-Tokenizer-Sha256", "b" * 64)
@@ -143,6 +145,11 @@ for flow in selected_flows:
                     assert call_id not in seen; seen.add(call_id)
                     request, body = calls[call_id]
                     assert attempt["request"] == request
+                    assert attempt["decoder"] == {"temperature": request["temperature"], "max_tokens": request["max_tokens"]}
+                    assert attempt["provider_request_id"] == "provider_" + call_id
+                    headers = {k.lower(): v for k, v in attempt["response_headers"].items()}
+                    assert headers["x-softmax-llm-call-id"] == call_id
+                    assert headers["x-private-receipt"] == "actual-provider-diagnostic"
                     assert (attempt["raw_response"] if isinstance(body, str) else json.loads(attempt["raw_response"])) == body
                     if flow in {"provider-error", "malformed-200"} and slot == 0:
                         assert attempt["response"] is None and attempt["latency_ms"] is not None

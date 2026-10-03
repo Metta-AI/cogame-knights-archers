@@ -419,7 +419,7 @@ proc exchangeDecisions(
                     for field in ["attempt_id", "policy", "origin", "prompt", "request"]:
                       valid = valid and supplied{field} == attempts[position]{field}
                     if stages[position] == 2:
-                      for field in ["raw_response", "platform_call_id", "latency_ms"]:
+                      for field in ["raw_response", "response_headers", "provider_request_id", "platform_call_id", "latency_ms"]:
                         valid = valid and supplied{field} == attempts[position]{field}
                 if valid and kind == "attempt_started":
                   valid = valid and stages[position] == 0 and
