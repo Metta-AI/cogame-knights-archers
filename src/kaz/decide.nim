@@ -485,8 +485,6 @@ proc turn*(
       var cause = "timeout"
       var evidence = newDecisionAttempt($wave & "-" & $turnIndex & "-" & $seat & "-" & $(attempt + 1),
         engine.seats[seat].label, aoUnknown)
-      evidence.prompt = %*[{"role": "system", "content": systemPromptFor(views[seat]["you"]["role"].getStr())},
-        {"role": "user", "content": $views[seat]}]
       evidence.latencyMs = some(float(latency))
       try:
         if responses[position].len == 0:

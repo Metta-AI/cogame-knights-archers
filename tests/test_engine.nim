@@ -115,6 +115,10 @@ block missingActionsHaveOneSharedDeadlineAndFallback:
     check(engine.haveDirective[seat], "a missing action leaves no hero idle")
     check(engine.directives[seat].source == dsFallback,
       "missing player actions use the phalanx fallback")
+  for decision in engine.decisions:
+    for attempt in decision.attempts:
+      check(attempt.origin == aoUnknown and attempt.prompt.kind == JNull,
+        "unserved socket waits cannot invent a model prompt")
   var timeouts = 0
   for record in records:
     if parseJson(record){"cause"}.getStr() == "timeout":

@@ -391,7 +391,9 @@ proc exchangeDecisions(
               if result[position].len > 0: break
               let parsed = jsonProposal(raw)
               if not parsed.ok:
-                result[position] = raw
+                result[position] = $( %*{"type": "action", "protocol": "kaz.player.v2",
+                  "id": requests[position]["id"], "source": "fallback", "cause": "parse_error",
+                  "training_attempt": attempts[position]})
                 break
               let answer = parsed.node
               if answer{"id"}.getInt() != requests[position]["id"].getInt(): continue
