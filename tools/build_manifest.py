@@ -87,7 +87,7 @@ config_props = {
     "retryMs": intprop(2000, 1000, 60000),
     "turnSpacingMs": intprop(9000, 0, 60000,
         "Wall-clock floor between batch STARTS; holds four seats under the "
-        "Bedrock sidecar's 30 req/min per-episode cap."),
+        "configured 30 req/min per-episode model budget."),
     "wallClockBudgetSeconds": intprop(690, 1, 720,
         "Engine hard stop. 60% of the assumed 1200 s episodeTimeoutSeconds is "
         "720; every shipped variant is at or under 690."),
