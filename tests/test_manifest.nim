@@ -80,7 +80,7 @@ block theImagePlaceholderComesFromTheComposeServiceName:
   check(compose.contains("image: coworld-knights-archers:latest"),
     "the compose image must be coworld-knights-archers:latest")
   check(compose.contains("platform: linux/amd64"), "platform must be pinned")
-  check(compose.contains("network: host"), "the build must use network: host")
+  check(not compose.contains("network: host"), "the build needs no host network entitlement")
   check(manifest["game"]["runnable"]["image"].getStr() ==
     "{{KNIGHTS_ARCHERS_IMAGE}}",
     "the manifest placeholder must derive from the compose SERVICE name")
@@ -92,13 +92,9 @@ block theImagePlaceholderComesFromTheComposeServiceName:
     check(player["resources"]["limits"]["cpu"].getStr() == "1",
       "the bundled player cpu limit minimum is \"1\"")
 
-block theSecretNamespaceEqualsTheGameName:
-  let
-    name = manifest["game"]["name"].getStr()
-    uri = manifest["game"]["runnable"]["env"]["ANTHROPIC_API_KEY_URI"].getStr()
-  check(name == "knights-archers", "game.name must be the slug")
-  check(uri == "secret://coworld/" & name & "/anthropic_api_key",
-    "the secret namespace must equal game.name exactly, got " & uri)
+block hostedInferenceNeedsNoProviderSecret:
+  check(manifest["game"]["name"].getStr() == "knights-archers", "game.name must be the slug")
+  check(not manifest["game"]["runnable"].hasKey("env"), "native sidecar needs no game provider secret")
 
 block everyArrayPropertyIsBounded:
   let props = manifest["game"]["config_schema"]["properties"]
