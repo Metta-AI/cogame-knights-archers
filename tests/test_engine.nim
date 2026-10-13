@@ -123,7 +123,7 @@ block missingActionsHaveOneSharedDeadlineAndFallback:
   for record in records:
     if parseJson(record){"cause"}.getStr() == "timeout":
       inc timeouts
-  check(timeouts == 8, "both attempts name every seat timeout")
+  check(timeouts == 12, "both attempts and terminal fallbacks name every seat timeout")
 
 block aCredentialFreePlayerReportsFallbackImmediately:
   var world = llmWorld()
