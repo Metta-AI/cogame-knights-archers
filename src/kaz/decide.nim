@@ -395,8 +395,10 @@ proc turn*(
 
   # --- which seats need a call? --------------------------------------------
   var open: seq[int]
+  var failureCauses = newSeq[string](engine.seats.len)
   for seat in 0 ..< engine.seats.len:
     if engine.seats[seat].isLlm and not engine.llmOff:
+      failureCauses[seat] = "timeout"
       open.add(seat)
     elif engine.seats[seat].isLlm:
       # An LLM seat that CANNOT call the LLM this turn is a fallback, not a
@@ -455,6 +457,7 @@ proc turn*(
   while open.len > 0 and attempt < 2:
     if getMonoTime() - turnStart >= budget:
       for seat in open:
+        failureCauses[seat] = "timeout"
         result.add(fallbackRecord(
           wave, turnIndex, seat, attempt + 1, "timeout",
           "per-turn budget exhausted before attempt " & $(attempt + 1)))
@@ -501,6 +504,7 @@ proc turn*(
           let why = if reported in ["no_credentials", "throttled",
               "transport_error", "timeout", "parse_error"]:
               reported else: "parse_error"
+          failureCauses[seat] = why
           result.add(fallbackRecord(wave, turnIndex, seat, attempt + 1,
             why, "player policy reported fallback"))
           var fallback = engine.phalanxFor(sim, sim.commandedCogs(seat))
@@ -547,6 +551,7 @@ proc turn*(
         engine.directives[seat] = directive
         engine.haveDirective[seat] = true
       except CatchableError as error:
+        failureCauses[seat] = cause
         result.add(fallbackRecord(
           wave, turnIndex, seat, attempt + 1, cause, cause))
         echo "knights-archers llm: seat ", seat, " attempt ", attempt + 1,
@@ -564,7 +569,7 @@ proc turn*(
     directive.source = dsFallback
     engine.directives[seat] = directive
     engine.haveDirective[seat] = true
-    let cause = if engine.llmOff: "budget_guard" else: "parse_error"
+    let cause = failureCauses[seat]
     result.add(fallbackRecord(wave, turnIndex, seat, 2, cause,
       "seat fell back to the phalanx directive"))
     ## "falling back" is the phrase phase 60 greps the GAME log for.

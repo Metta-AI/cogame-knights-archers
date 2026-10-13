@@ -80,7 +80,7 @@ block theImagePlaceholderComesFromTheComposeServiceName:
   check(compose.contains("image: coworld-knights-archers:latest"),
     "the compose image must be coworld-knights-archers:latest")
   check(compose.contains("platform: linux/amd64"), "platform must be pinned")
-  check(compose.contains("network: host"), "the build must use network: host")
+  check(not compose.contains("network: host"), "the build must not require host networking")
   check(manifest["game"]["runnable"]["image"].getStr() ==
     "{{KNIGHTS_ARCHERS_IMAGE}}",
     "the manifest placeholder must derive from the compose SERVICE name")
