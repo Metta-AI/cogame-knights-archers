@@ -358,7 +358,6 @@ proc turn*(
   let
     wave = sim.gameIndex + 1
     budget = initDuration(milliseconds = max(1, sim.config.turnBudgetMs))
-    turnStart = getMonoTime()
   ## Throttle state is PER TURN: a daily-token 429 on turn k says nothing
   ## about turn k+1 (the sidecar's window may have rolled), so the flag is
   ## cleared here and only suppresses this turn's retry.
@@ -380,9 +379,11 @@ proc turn*(
 
   # --- which seats need a call? --------------------------------------------
   var open: seq[int]
+  var failureCauses = newSeq[string](engine.seats.len)
   for seat in 0 ..< engine.seats.len:
     if engine.seats[seat].isLlm and not engine.llmOff and
         not engine.client.disabled:
+      failureCauses[seat] = "timeout"
       open.add(seat)
     elif engine.seats[seat].isLlm:
       # An LLM seat that CANNOT call the LLM this turn is a fallback, not a
@@ -424,12 +425,14 @@ proc turn*(
     engine.batchStarted = true
 
   # --- up to two PARALLEL batches ------------------------------------------
+  let turnStart = getMonoTime()
   var attempt = 0
   while open.len > 0 and attempt < 2:
     if engine.client.disabled:
       break
     if getMonoTime() - turnStart >= budget:
       for seat in open:
+        failureCauses[seat] = "timeout"
         result.add(fallbackRecord(
           wave, turnIndex, seat, attempt + 1, "timeout",
           "per-turn budget exhausted before attempt " & $(attempt + 1)))
@@ -482,12 +485,15 @@ proc turn*(
         if responses[position].error.len > 0:
           cause = (if "timeout" in responses[position].error.toLowerAscii():
                      "timeout" else: "transport_error")
+        elif responses[position].response.code in [401, 403]:
+          cause = "no_credentials"
         elif error.msg.startsWith("llm throttled"):
           ## Name the throttle for what it is. Reporting a 429 as
           ## `parse_error` is what made the hosted log unreadable: 205
           ## "falling back (parse_error)" lines for an episode whose only
           ## fault was a daily-token cap.
           cause = "throttled"
+        failureCauses[seat] = cause
         result.add(fallbackRecord(
           wave, turnIndex, seat, attempt + 1, cause, error.msg))
         echo "knights-archers llm: seat ", seat, " attempt ", attempt + 1,
@@ -510,12 +516,7 @@ proc turn*(
     directive.source = dsFallback
     engine.directives[seat] = directive
     engine.haveDirective[seat] = true
-    let cause =
-      if engine.client.disabled or engine.client.transport == ltNone:
-        "no_credentials"
-      elif engine.llmOff: "budget_guard"
-      elif engine.client.throttled: "throttled"
-      else: "parse_error"
+    let cause = failureCauses[seat]
     result.add(fallbackRecord(wave, turnIndex, seat, 2, cause,
       "seat fell back to the phalanx directive"))
     ## "falling back" is the phrase phase 60 greps the GAME log for.
