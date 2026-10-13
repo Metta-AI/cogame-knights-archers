@@ -445,7 +445,7 @@ proc turn*(
           "\"cogs\" entry per cog you command.")
       let request = engine.client.requestFor(
         systemPromptFor(sim.roleForSeat(seat)),
-        userMessage(engine.seats[seat].prompt, user))
+        userMessage(engine.seats[seat].prompt, user), seat)
       batch.post(request.url, request.headers, request.body, $seat)
     let started = getMonoTime()
     ## curly hands the deadline to CURLOPT_TIMEOUT, whose granularity is
