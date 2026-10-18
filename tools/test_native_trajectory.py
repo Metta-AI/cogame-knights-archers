@@ -1,12 +1,14 @@
 """Actual hero players, private attempts and physical masks; local HTTP fixtures only."""
+
+import argparse
 import base64
 import contextlib
+import hashlib
 import http.server
 import json
 import os
 import socket
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -14,13 +16,47 @@ import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-GAME, PLAYER = (str(Path(arg).resolve()) for arg in sys.argv[1:3])
-flows = ("accepted", "invalid", "sampled", "greedy-null", "greedy-tokens", "provider-error", "malformed-200", "timeout", "malformed-wire")
-selected_flows = (sys.argv[4],) if len(sys.argv) == 5 else flows
-assert all(flow in flows for flow in selected_flows)
+flows = (
+    "accepted",
+    "invalid",
+    "sampled",
+    "greedy-null",
+    "greedy-tokens",
+    "provider-error",
+    "malformed-200",
+    "timeout",
+    "malformed-wire",
+)
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("game", type=Path)
+parser.add_argument("player", type=Path)
+parser.add_argument("output", type=Path, nargs="?")
+parser.add_argument("flow", choices=flows, nargs="?")
+parser.add_argument(
+    "--variant", choices=("default", "horde-short", "horde-hard", "horde-tough")
+)
+parser.add_argument(
+    "--wording",
+    default="canonical",
+    choices=(
+        "canonical",
+        "plain",
+        "numbered",
+        "questions",
+        "reordered",
+        "heldout-briefing",
+        "heldout-reference",
+        "mixed",
+    ),
+)
+parser.add_argument("--prompt-seed", type=int, default=0)
+args = parser.parse_args()
+GAME, PLAYER = str(args.game.resolve()), str(args.player.resolve())
+selected_flows = (args.flow,) if args.flow else flows
 for flow in selected_flows:
     calls = {}
     timeout_requests = []
+
     class Provider(http.server.BaseHTTPRequestHandler):
         def do_POST(self):
             request = json.loads(self.rfile.read(int(self.headers["content-length"])))
@@ -28,33 +64,63 @@ for flow in selected_flows:
             assert self.path == "/v1/messages" and slot in range(4)
             assert request["temperature"] == (1 if flow == "sampled" else 0)
             view = json.loads(request["messages"][0]["content"].split("\n\n", 1)[1])
-            action = {"note": "public coaching note", "cogs": [
-                {"id": view["you"]["id"], "intent": "screen",
-                 "target": view["you"]["choke_post"], "say": "public hero speech"}]}
-            text = "private-invalid-response" if flow == "invalid" and slot == 0 else json.dumps(action)
+            action = {
+                "note": "public coaching note",
+                "cogs": [
+                    {
+                        "id": view["you"]["id"],
+                        "intent": "screen",
+                        "target": view["you"]["choke_post"],
+                        "say": "public hero speech",
+                    }
+                ],
+            }
+            text = (
+                "private-invalid-response"
+                if flow == "invalid" and slot == 0
+                else json.dumps(action)
+            )
             if flow == "timeout" and slot == 0:
                 timeout_requests.append(request)
                 time.sleep(8)
                 return
             call_id = str(uuid.uuid4())
-            body = {"id": "msg_" + call_id, "model": "fixture/served", "stop_reason": "end_turn",
-                    "content": [{"type": "text", "text": text}], "usage": {"input_tokens": 12, "output_tokens": 4}}
-            if flow == "greedy-null": body["sampling_evidence"] = None
+            body = {
+                "id": "msg_" + call_id,
+                "model": "fixture/served",
+                "stop_reason": "end_turn",
+                "content": [{"type": "text", "text": text}],
+                "usage": {"input_tokens": 12, "output_tokens": 4},
+            }
+            if flow == "greedy-null":
+                body["sampling_evidence"] = None
             if flow in {"sampled", "greedy-tokens"}:
                 body["sampling_evidence"] = {
-                    "policy_revision": "a" * 64, "tokenizer_revision": "b" * 64,
-                    "chat_template": "fixture-template", "sampling": "full_softmax_temperature_one" if flow == "sampled" else "greedy",
-                    "enable_thinking": False, "max_new_tokens": request["max_tokens"],
-                    "max_sequence_length": 4096, "sampling_seed": 7, "eos_token_ids": [4],
-                    "prompt_token_ids": [1, 2], "completion_token_ids": [3, 4],
+                    "policy_revision": "a" * 64,
+                    "tokenizer_revision": "b" * 64,
+                    "chat_template": "fixture-template",
+                    "sampling": "full_softmax_temperature_one"
+                    if flow == "sampled"
+                    else "greedy",
+                    "enable_thinking": False,
+                    "max_new_tokens": request["max_tokens"],
+                    "max_sequence_length": 4096,
+                    "sampling_seed": 7,
+                    "eos_token_ids": [4],
+                    "prompt_token_ids": [1, 2],
+                    "completion_token_ids": [3, 4],
                     "behavior_log_probs": [-0.5, -0.3] if flow == "sampled" else None,
-                    "stop_reason": "eos", "response": text}
+                    "stop_reason": "eos",
+                    "response": text,
+                }
             if flow == "provider-error" and slot == 0:
                 body = {"error": {"message": "private-provider-error"}}
             if flow == "malformed-200" and slot == 0:
                 body = "private-malformed-provider"
             calls[call_id] = (request, body)
-            encoded = body.encode() if isinstance(body, str) else json.dumps(body).encode()
+            encoded = (
+                body.encode() if isinstance(body, str) else json.dumps(body).encode()
+            )
             self.send_response(429 if flow == "provider-error" and slot == 0 else 200)
             self.send_header("content-type", "application/json")
             self.send_header("content-length", str(len(encoded)))
@@ -67,57 +133,129 @@ for flow in selected_flows:
                 self.send_header("X-Coworld-Chat-Template-Sha256", "c" * 64)
             self.end_headers()
             self.wfile.write(encoded)
-        def log_message(self, *_args): pass
+
+        def log_message(self, *_args):
+            pass
+
     provider = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Provider)
     threading.Thread(target=provider.serve_forever, daemon=True).start()
-    if len(sys.argv) >= 4:
-        target = Path(sys.argv[3]) / flow
+    if args.output is not None:
+        target = args.output / flow
         target.mkdir(parents=True, mode=0o700, exist_ok=False)
         output_context = contextlib.nullcontext(target)
-    else: output_context = tempfile.TemporaryDirectory()
+    else:
+        output_context = tempfile.TemporaryDirectory()
     with output_context as directory:
         output = Path(directory)
         with socket.socket() as reserve:
             reserve.bind(("127.0.0.1", 0))
             port = reserve.getsockname()[1]
-        config = {"num_agents": 4, "seed": 7, "tokens": ["t0", "t1", "t2", "t3"],
-                  "players": [{"name": name} for name in ["fixture-knight-a", "fixture-knight-b", "fixture-archer-a", "fixture-archer-b"]],
-                  "maxGames": 1, "maxTicks": 240, "turnTicks": 120, "startWaitTicks": 4,
-                  "turnBudgetMs": 2500, "attempt1Ms": 1500, "retryMs": 1000, "turnSpacingMs": 0,
-                  "lobbyJoinTimeoutTicks": 720, "minPlayers": 4, "fastMode": True,
-                  "wallClockBudgetSeconds": 90, "gameOverTicks": 0}
+        config = {
+            "num_agents": 4,
+            "seed": 7,
+            "tokens": ["t0", "t1", "t2", "t3"],
+            "players": [
+                {"name": name}
+                for name in [
+                    "fixture-knight-a",
+                    "fixture-knight-b",
+                    "fixture-archer-a",
+                    "fixture-archer-b",
+                ]
+            ],
+            "maxGames": 1,
+            "maxTicks": 240,
+            "turnTicks": 120,
+            "startWaitTicks": 4,
+            "turnBudgetMs": 2500,
+            "attempt1Ms": 1500,
+            "retryMs": 1000,
+            "turnSpacingMs": 0,
+            "lobbyJoinTimeoutTicks": 720,
+            "minPlayers": 4,
+            "fastMode": True,
+            "wallClockBudgetSeconds": 90,
+            "gameOverTicks": 0,
+        }
+        if args.variant:
+            manifest = json.loads((ROOT / "coworld_manifest_template.json").read_text())
+            config.update(
+                next(
+                    v["game_config"]
+                    for v in manifest["variants"]
+                    if v["id"] == args.variant
+                )
+            )
+        config.update(promptVariant=args.wording, promptSeed=args.prompt_seed)
         (output / "config.json").write_text(json.dumps(config))
-        env = {**os.environ, "COGAME_HOST": "127.0.0.1", "COGAME_PORT": str(port),
-               "COGAME_CONFIG_URI": (output / "config.json").as_uri(),
-               "COGAME_RESULTS_URI": (output / "results.json").as_uri(),
-               "COGAME_SAVE_REPLAY_URI": (output / "replay.bitreplay").as_uri(),
-               "COGAME_SAVE_TRAJECTORY_URI": (output / "trajectory.jsonl").as_uri(),
-               "COWORLD_EPISODE_ID": str(uuid.uuid4()), "COWORLD_GAME_VERSION": "fixture-package-0.1.4",
-               "COWORLD_SOURCE_REVISION": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-               "COWORLD_LLM_ENDPOINT": f"http://127.0.0.1:{provider.server_port}",
-               "COWORLD_LLM_MODEL": "fixture/requested", "COWORLD_LLM_TEMPERATURE": "1" if flow == "sampled" else "0",
-               "PLAYER_PROMPT": "private-guidance-fixture", "PLAYER_SCRIPTED": ""}
+        env = {
+            **os.environ,
+            "COGAME_HOST": "127.0.0.1",
+            "COGAME_PORT": str(port),
+            "COGAME_CONFIG_URI": (output / "config.json").as_uri(),
+            "COGAME_RESULTS_URI": (output / "results.json").as_uri(),
+            "COGAME_SAVE_REPLAY_URI": (output / "replay.bitreplay").as_uri(),
+            "COGAME_SAVE_TRAJECTORY_URI": (output / "trajectory.jsonl").as_uri(),
+            "COWORLD_EPISODE_ID": str(uuid.uuid4()),
+            "COWORLD_GAME_VERSION": "fixture-package-0.1.4",
+            "COWORLD_SOURCE_REVISION": subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+            ).strip(),
+            "COWORLD_LLM_ENDPOINT": f"http://127.0.0.1:{provider.server_port}",
+            "COWORLD_LLM_MODEL": "fixture/requested",
+            "COWORLD_LLM_TEMPERATURE": "1" if flow == "sampled" else "0",
+            "PLAYER_PROMPT": "private-guidance-fixture",
+            "PLAYER_SCRIPTED": "",
+        }
         processes, logs = [], []
         try:
-            log = (output / "game.log").open("w"); logs.append(log)
-            processes.append(subprocess.Popen([GAME], cwd=ROOT, env=env, stdout=log, stderr=log))
+            log = (output / "game.log").open("w")
+            logs.append(log)
+            processes.append(
+                subprocess.Popen([GAME], cwd=ROOT, env=env, stdout=log, stderr=log)
+            )
             for _ in range(100):
-                if processes[0].poll() is not None: raise AssertionError((output / "game.log").read_text())
+                if processes[0].poll() is not None:
+                    raise AssertionError((output / "game.log").read_text())
                 with socket.socket() as check:
-                    if check.connect_ex(("127.0.0.1", port)) == 0: break
-                time.sleep(.05)
-            else: raise AssertionError("game socket never opened")
+                    if check.connect_ex(("127.0.0.1", port)) == 0:
+                        break
+                time.sleep(0.05)
+            else:
+                raise AssertionError("game socket never opened")
             for slot in range(4):
-                log = (output / f"player{slot}.log").open("w"); logs.append(log)
-                player_env = {**env, "COWORLD_PLAYER_WS_URL": f"ws://127.0.0.1:{port}/player?slot={slot}&token=t{slot}"}
-                binary = os.environ["COWORLD_TEST_MALFORMED_PLAYER"] if flow == "malformed-wire" and slot == 0 else PLAYER
-                processes.append(subprocess.Popen([binary], cwd=ROOT, env=player_env, stdout=log, stderr=log))
-            for process in processes: assert process.wait(timeout=90) == 0
-            for log in logs: log.flush()
-            events = [json.loads(line) for line in (output / "trajectory.jsonl").read_text().splitlines()]
+                log = (output / f"player{slot}.log").open("w")
+                logs.append(log)
+                player_env = {
+                    **env,
+                    "COWORLD_PLAYER_WS_URL": f"ws://127.0.0.1:{port}/player?slot={slot}&token=t{slot}",
+                }
+                binary = (
+                    os.environ["COWORLD_TEST_MALFORMED_PLAYER"]
+                    if flow == "malformed-wire" and slot == 0
+                    else PLAYER
+                )
+                processes.append(
+                    subprocess.Popen(
+                        [binary], cwd=ROOT, env=player_env, stdout=log, stderr=log
+                    )
+                )
+            for process in processes:
+                assert process.wait(timeout=config["wallClockBudgetSeconds"] + 30) == 0
+            for log in logs:
+                log.flush()
+            events = [
+                json.loads(line)
+                for line in (output / "trajectory.jsonl").read_text().splitlines()
+            ]
             decisions, episode = events[:-1], events[-1]
-            assert episode["status"] == "completed" and episode["outcome"]["reason"] == "complete"
-            assert len(decisions) == 8
+            assert (
+                episode["status"] == "completed"
+                and episode["outcome"]["reason"] == "complete"
+            )
+            assert len(decisions) > 0
+            if not args.variant:
+                assert len(decisions) == 8
             assert episode["game_version"] == "fixture-package-0.1.4"
             assert episode["outcome"]["engine_version"] == "1"
             assert (output / "trajectory.jsonl").stat().st_mode & 0o777 == 0o600
@@ -126,65 +264,191 @@ for flow in selected_flows:
                 assert decision["execution"] is None
                 slot = int(decision["seat"])
                 physical = decision["observation"]["execution"]
-                assert physical["control_encoding"] == "sprite-one-u8" and physical["tick_hz"] == 24
+                selection = decision["observation"]["prompt_selection"]
+                resolved = (
+                    ("canonical", "plain", "numbered", "questions", "reordered")[
+                        args.prompt_seed % 5
+                    ]
+                    if args.wording == "mixed"
+                    else args.wording
+                )
+                assert selection == {
+                    "bank": "knights-archers-rules-v1",
+                    "selection": args.wording,
+                    "variant": resolved,
+                    "seed": args.prompt_seed,
+                }
+                assert (
+                    physical["control_encoding"] == "sprite-one-u8"
+                    and physical["tick_hz"] == 24
+                )
                 duration = physical["end_tick"] - physical["start_tick"]
-                assert duration > 0 and len(base64.b64decode(physical["seat_input_masks_b64"])) == duration
+                assert (
+                    duration > 0
+                    and len(base64.b64decode(physical["seat_input_masks_b64"]))
+                    == duration
+                )
                 assert len(physical["post_tick_hashes"]) == duration
+                assert {
+                    h["attempt_id"] for h in decision["observation"]["prompt_hashes"]
+                } == {
+                    a["attempt_id"]
+                    for a in decision["attempts"]
+                    if a["prompt"] is not None
+                }
                 for attempt in decision["attempts"]:
+                    if attempt["prompt"] is not None:
+                        hashes = next(
+                            h["prompt_template"]
+                            for h in decision["observation"]["prompt_hashes"]
+                            if h["attempt_id"] == attempt["attempt_id"]
+                        )
+                        assert hashes == {
+                            **selection,
+                            "system_sha256": hashlib.sha256(
+                                attempt["prompt"][0]["content"].encode()
+                            ).hexdigest(),
+                            "user_sha256": hashlib.sha256(
+                                attempt["prompt"][1]["content"].encode()
+                            ).hexdigest(),
+                        }
                     assert attempt["inference_mode"] == "text_action"
                     if flow == "timeout" and slot == 0 and attempt["origin"] == "model":
                         assert not attempt["accepted"]
                         assert attempt["request"] in timeout_requests
-                        assert attempt["prompt"][1]["content"] == attempt["request"]["messages"][0]["content"]
+                        assert (
+                            attempt["prompt"][1]["content"]
+                            == attempt["request"]["messages"][0]["content"]
+                        )
                         assert attempt["platform_call_id"] is None
-                        assert attempt["response"] is None and attempt["raw_response"] is None
+                        assert (
+                            attempt["response"] is None
+                            and attempt["raw_response"] is None
+                        )
                         assert attempt["latency_ms"] is None
-                        assert attempt["rejection_reason"].startswith("incomplete_native_attempt: timeout")
-                    if attempt["platform_call_id"] is None: continue
+                        assert attempt["rejection_reason"].startswith(
+                            "incomplete_native_attempt: timeout"
+                        )
+                    if attempt["platform_call_id"] is None:
+                        continue
                     call_id = attempt["platform_call_id"]
-                    assert call_id not in seen; seen.add(call_id)
+                    assert call_id not in seen
+                    seen.add(call_id)
                     request, body = calls[call_id]
                     assert attempt["request"] == request
-                    assert attempt["decoder"] == {"temperature": request["temperature"], "max_tokens": request["max_tokens"]}
+                    assert attempt["decoder"] == {
+                        "temperature": request["temperature"],
+                        "max_tokens": request["max_tokens"],
+                    }
                     assert attempt["provider_request_id"] == "provider_" + call_id
-                    headers = {k.lower(): v for k, v in attempt["response_headers"].items()}
+                    headers = {
+                        k.lower(): v for k, v in attempt["response_headers"].items()
+                    }
                     assert headers["x-softmax-llm-call-id"] == call_id
                     assert headers["x-private-receipt"] == "actual-provider-diagnostic"
-                    assert (attempt["raw_response"] if isinstance(body, str) else json.loads(attempt["raw_response"])) == body
+                    assert (
+                        attempt["raw_response"]
+                        if isinstance(body, str)
+                        else json.loads(attempt["raw_response"])
+                    ) == body
                     if flow in {"provider-error", "malformed-200"} and slot == 0:
-                        assert attempt["response"] is None and attempt["latency_ms"] is not None
-                        assert not attempt["rejection_reason"].startswith("incomplete_native_attempt:")
+                        assert (
+                            attempt["response"] is None
+                            and attempt["latency_ms"] is not None
+                        )
+                        assert not attempt["rejection_reason"].startswith(
+                            "incomplete_native_attempt:"
+                        )
                     assert attempt["prompt"][0]["content"] == request["system"]
-                    assert attempt["prompt"][1]["content"] == request["messages"][0]["content"]
+                    assert (
+                        attempt["prompt"][1]["content"]
+                        == request["messages"][0]["content"]
+                    )
                     if "model" in body:
                         assert attempt["model"] == "fixture/served"
-                        assert attempt["input_tokens"] == 12 and attempt["output_tokens"] == 4
+                        assert (
+                            attempt["input_tokens"] == 12
+                            and attempt["output_tokens"] == 4
+                        )
                     if flow == "greedy-tokens":
-                        assert attempt["sampled_token_ids"] == [3, 4] and attempt["behavior_logprobs"] is None
+                        assert (
+                            attempt["sampled_token_ids"] == [3, 4]
+                            and attempt["behavior_logprobs"] is None
+                        )
                 if decision["action_status"] == "accepted":
-                    selected = next(a for a in decision["attempts"] if a["attempt_id"] == decision["selected_attempt_id"])
-                    assert selected["accepted"] and selected["parsed_action"] == decision["executed_action"]
-                else: assert decision["selected_attempt_id"] is None
+                    selected = next(
+                        a
+                        for a in decision["attempts"]
+                        if a["attempt_id"] == decision["selected_attempt_id"]
+                    )
+                    assert (
+                        selected["accepted"]
+                        and selected["parsed_action"] == decision["executed_action"]
+                    )
+                else:
+                    assert decision["selected_attempt_id"] is None
             assert seen == set(calls)
             if flow == "timeout":
-                assert any(a["origin"] == "model" and a["raw_response"] is None
-                           for d in decisions if d["seat"] == "0" for a in d["attempts"])
-            public = (output / "replay.bitreplay").read_bytes().decode("latin1") + "".join((output / p).read_text() for p in ["game.log", *(f"player{i}.log" for i in range(4))])
-            for secret in ("private-guidance-fixture", "private-invalid-response", "private-provider-error", "private-malformed-provider"):
+                assert any(
+                    a["origin"] == "model" and a["raw_response"] is None
+                    for d in decisions
+                    if d["seat"] == "0"
+                    for a in d["attempts"]
+                )
+            public = (output / "replay.bitreplay").read_bytes().decode(
+                "latin1"
+            ) + "".join(
+                (output / p).read_text()
+                for p in ["game.log", *(f"player{i}.log" for i in range(4))]
+            )
+            for secret in (
+                "private-guidance-fixture",
+                "private-invalid-response",
+                "private-provider-error",
+                "private-malformed-provider",
+            ):
                 assert secret not in public
             if flow in {"invalid", "malformed-200", "timeout", "malformed-wire"}:
-                assert any(d["action_status"] == "fallback" and len(d["attempts"]) == 2 for d in decisions)
+                assert any(
+                    d["action_status"] == "fallback" and len(d["attempts"]) == 2
+                    for d in decisions
+                )
             if flow == "provider-error":
-                assert any(d["action_status"] == "fallback" and len(d["attempts"]) == 1 for d in decisions)
+                assert any(
+                    d["action_status"] == "fallback" and len(d["attempts"]) == 1
+                    for d in decisions
+                )
             if flow == "malformed-wire":
-                assert all(a["origin"] == "model" and a["platform_call_id"] is not None
-                           for d in decisions if d["seat"] == "0" for a in d["attempts"])
+                assert all(
+                    a["origin"] == "model" and a["platform_call_id"] is not None
+                    for d in decisions
+                    if d["seat"] == "0"
+                    for a in d["attempts"]
+                )
             archive = output / "fixture_calls.json"
-            archive.write_text(json.dumps({"cohort": "local HTTP fixture, not real platform archive", "synthetic_model_identities": True, "calls": calls}))
+            archive.write_text(
+                json.dumps(
+                    {
+                        "cohort": "local HTTP fixture, not real platform archive",
+                        "synthetic_model_identities": True,
+                        "calls": calls,
+                    }
+                )
+            )
             archive.chmod(0o600)
-            print(flow, len(decisions), "macros", len(calls), "native fixture joins", flush=True)
+            print(
+                flow,
+                len(decisions),
+                "macros",
+                len(calls),
+                "native fixture joins",
+                flush=True,
+            )
         finally:
             for process in processes:
-                if process.poll() is None: process.terminate(); process.wait(timeout=5)
-            for log in logs: log.close()
+                if process.poll() is None:
+                    process.terminate()
+                    process.wait(timeout=5)
+            for log in logs:
+                log.close()
     provider.shutdown()

@@ -64,3 +64,12 @@ The exporter writes exclusive private files containing complete canonical trajec
 Teacher prompts and actions consume only the ordinary private view. Hidden seed/RNG state never enters policy input. Corpora require content review before training; synthetic native fixtures do not qualify real hosted sampling or reinforcement-learning provenance.
 
 Existing pre-modernization exports and optimizer reports remain historical evidence at source `a0c9f1c1786b6a70b502a6acb1d246da563f26d4`. They do not certify this source edition or deployed runtime. Fresh canonical exports use new directories.
+
+For a complete native wording check with published game timing, run the existing HTTP-fixture harness:
+
+```sh
+python3 tools/test_native_trajectory.py GAME PLAYER PRIVATE_OUTPUT accepted --variant horde-short --wording heldout-briefing
+check_training_replay PRIVATE_OUTPUT/accepted/replay.bitreplay PRIVATE_OUTPUT/accepted/trajectory.jsonl
+```
+
+The harness validates actual request joins, episode-stable selection, and every attempt's prompt hashes. Omit `--variant` only for the existing short protocol fixtures. These checks establish transport and evidence correctness; they do not measure model quality or resistance to training collapse.

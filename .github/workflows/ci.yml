@@ -154,6 +154,7 @@ jobs:
           set -euo pipefail
           nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/bridge" tools/train_bridge.nim
           python3 tools/test_train_bridge.py "$RUNNER_TEMP/bridge"
+          python3 tools/test_prompt_games.py "$RUNNER_TEMP/bridge"
           nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/game" src/knights_archers.nim
           nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/player" src/knights_archers_player.nim
           nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/malformed-player" tools/test_malformed_player.nim
@@ -164,6 +165,13 @@ jobs:
           nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/check-replay" tools/check_training_replay.nim
           for episode in "$RUNNER_TEMP/native-trajectories"/*; do
             "$RUNNER_TEMP/check-replay" "$episode/replay.bitreplay" "$episode/trajectory.jsonl"
+          done
+          python3 tools/test_native_trajectory.py "$RUNNER_TEMP/game" "$RUNNER_TEMP/player" "$RUNNER_TEMP/native-heldout" accepted --variant horde-short --wording heldout-briefing
+          "$RUNNER_TEMP/check-replay" "$RUNNER_TEMP/native-heldout/accepted/replay.bitreplay" "$RUNNER_TEMP/native-heldout/accepted/trajectory.jsonl"
+          nim c --parallelBuild:1 --hints:off -d:release --path:src -o:"$RUNNER_TEMP/export-posttrain" tools/export_posttrain.nim
+          "$RUNNER_TEMP/export-posttrain" "$RUNNER_TEMP/prompt-candidates" 10 1 horde-short plain 0
+          for replay in "$RUNNER_TEMP/prompt-candidates"/*.replay; do
+            "$RUNNER_TEMP/check-replay" "$replay" "${replay%.replay}.jsonl"
           done
 
       # The scripted baseline is TUNED, not guessed: tools/tune_baselines.nim
