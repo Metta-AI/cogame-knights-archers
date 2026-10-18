@@ -1,5 +1,37 @@
 # Private training trajectories
 
+## Episode rules wording
+
+`promptVariant` selects `canonical`, `plain`, `numbered`, `questions`, or
+`reordered`. `mixed` resolves from an explicit `promptSeed % 5` without
+consuming simulation randomness. `heldout-briefing` and `heldout-reference`
+are evaluation only. The canonical prompt is unchanged; variants replace
+only its introduction. Role-specific rules and action schemas remain identical.
+
+Selection lives in the decision engine, outside the positionally serialized
+simulation structures. Native players receive it in the private decision
+envelope and reject changes during an episode. Teacher and bridge paths use
+the same renderer. Private captures retain selection and exact per-attempt
+system/user hashes. Bridge observations include `prompt_template` metadata.
+Training resets reject held-out wording.
+
+The source exporter accepts optional `PROMPT_VARIANT PROMPT_SEED` arguments
+after the variant. It requires a clean committed checkout and rejects held-out
+wordings. Each episode writes its private trajectory and binary replay in
+addition to the combined stream. Replay filenames appear in the manifest.
+Use `tools/check_training_replay.nim REPLAY TRAJECTORY` to re-simulate every
+tick and compare every captured actuator mask and state hash. No automatic
+labels or split assignment are added; independent review remains required.
+
+```sh
+export_posttrain PRIVATE_OUTPUT 10 1 default mixed 3
+python3 tools/test_prompt_games.py BRIDGE ORIGINAL_BRIDGE
+```
+
+The complete-game comparison covers all published variants, every wording,
+both bridge modes, and the original canonical renderer. Deterministic parity
+does not establish improved model play or prevention of training collapse.
+
 Production players, scripted teachers, and `--language` bridge decisions use the same private hero view and directive parser. Numeric bridge actions remain a separate experimental task.
 
 Build and exercise both bridge modes:

@@ -1,18 +1,25 @@
 ## Canonical private complete teacher corpus; shared SDK owns splits and labels.
 import std/[json, os, osproc, strutils]
 import bitworld/[spriteprotocol, decision_trajectory]
-import kaz/[sim, control, directives, baselines, decide, training_capture]
+import kaz/[sim, control, directives, baselines, decide, training_capture, replays]
 
 const Variants = ["default", "horde-short", "horde-hard", "horde-tough"]
 
 when isMainModule:
   let args = commandLineParams()
-  if args.len notin 2 .. 4:
-    quit("usage: export_posttrain OUTPUT EPISODES [FIRST_SEED] [VARIANT]", 1)
+  if args.len notin [2, 3, 4, 6]:
+    quit("usage: export_posttrain OUTPUT EPISODES [FIRST_SEED] [VARIANT] [PROMPT_VARIANT PROMPT_SEED]", 1)
   let output = args[0]
   let episodes = parseInt(args[1])
   let firstSeed = if args.len >= 3: parseInt(args[2]) else: 1
-  let variant = if args.len == 4: args[3] else: "default"
+  let variant = if args.len >= 4: args[3] else: "default"
+  let selection = promptSelection(if args.len == 6:
+    %*{"promptVariant": args[4], "promptSeed": parseInt(args[5])} else: newJObject())
+  doAssert selection.selectedVariant notin {pvHeldoutBriefing, pvHeldoutReference},
+    "held-out wording is evaluation only"
+  let status = execCmdEx("git status --porcelain")
+  doAssert status.exitCode == 0 and status.output.strip().len == 0,
+    "commit qualified source before exporting candidates"
   if episodes < 10 or firstSeed < 1: quit("ten episodes and a positive seed are required", 1)
   if variant notin Variants: quit("unknown variant", 1)
   if dirExists(output) or fileExists(output): quit("output already exists", 1)
@@ -32,13 +39,17 @@ when isMainModule:
     config.seed = seed
     var game = initSimServer(config)
     game.gameEventLoggingEnabled = false
+    let episode = "knights-archers-" & variant & "-" & $seed & "-" & $selection.selectedVariant
+    let replayPath = output / (episode & ".replay")
+    var writer = openReplayWriter(replayPath, config.configJson())
+    setFilePermissions(replayPath, {fpUserRead, fpUserWrite})
     var engine: DecisionEngine
     var prev: seq[InputState]
     var waves = 0
     var decisions = 0
     var lastTurnKey = -1
     var steps = 0
-    let capture = newMatchCapture("knights-archers-" & variant & "-" & $seed,
+    let capture = newMatchCapture("knights-archers-" & variant & "-" & $seed & "-" & $selection.selectedVariant,
       "source-engine-" & GameVersion, revision, seed)
     while waves < config.maxGames:
       inc steps
@@ -46,6 +57,8 @@ when isMainModule:
       if game.phase == Lobby and game.players.len == 0:
         for seat in 0 ..< 4:
           discard game.addPlayer("policy-" & $seat, seat, "", trusted = true)
+          writer.writeJoin(tickTime(game.tickCount), seat, "policy-" & $seat, seat, "")
+          while writer.lastMasks.len < game.players.len: writer.lastMasks.add(0)
       var inputs = newSeq[InputState](game.players.len)
       if game.phase == Playing:
         engine.ctl.observeHeroes(game)
@@ -61,20 +74,24 @@ when isMainModule:
           decisions += 4
           for directive in engine.directives:
             for order in directive.orders:
-              if order.say.len > 0: discard game.applyShout(order.cogIndex, order.say)
+              if order.say.len > 0 and game.applyShout(order.cogIndex, order.say):
+                writer.writeChat(tickTime(game.tickCount), order.cogIndex, order.say)
         for actor in 0 ..< game.players.len:
           for order in engine.directives[game.cogSeat(actor)].orders:
             if order.cogIndex == actor:
               inputs[actor] = decodeInputMask(engine.ctl.compileMask(game, order, actor))
       let before = game.phase
+      for seat, input in inputs:
+        writer.writeInputMaskChange(tickTime(game.tickCount), seat, encodeInputMask(input))
       game.step(inputs, prev)
+      writer.writeHash(uint32(game.tickCount), game.gameHash())
       var masks = newSeq[uint8](inputs.len)
       for seat, input in inputs: masks[seat] = encodeInputMask(input)
       capture.recordTick(masks, game)
       prev = inputs
       while prev.len < game.players.len: prev.add(InputState())
       if before != Playing and game.phase == Playing:
-        engine = initDecisionEngine(game)
+        engine = initDecisionEngine(game, selection)
         for seat in engine.seats.mitems:
           seat.registered = true
           seat.baseline = blPhalanx
@@ -88,13 +105,17 @@ when isMainModule:
     let outcome = parseJson(game.heroResultsJson())
     doAssert outcome["reason"].getStr() == ReasonComplete and decisions > 0
     capture.finishMatch(game)
+    writer.closeReplayWriter()
+    writePrivate(output / (episode & ".jsonl"), capture.trajectory.eventsJsonl())
     complete.add(capture.trajectory.eventsJsonl())
-    runs.add(%*{"seed": seed, "decisions": decisions, "scores": outcome["scores"],
+    runs.add(%*{"seed": seed, "episode_id": episode, "replay": episode & ".replay",
+      "trajectory": episode & ".jsonl", "decisions": decisions, "scores": outcome["scores"],
       "team_score": outcome["teamScore"]})
   writePrivate(output / "trajectories.jsonl", complete.join(""))
   writePrivate(output / "manifest.json", pretty(%*{"schema_version": 1,
     "game": "knights-archers", "game_version": "source-engine-" & GameVersion, "engine_version": GameVersion,
-    "edition": "source-diagnostic", "variant": variant,
+    "edition": "source-diagnostic", "variant": variant, "review_required": true,
+    "prompt_selection": selection.selectionMetadata(),
     "source_revision": revision, "teacher": "scripted-phalanx",
     "split_authority": "shared Coworld SDK/application importer by seed_family", "runs": runs}))
   echo episodes, " complete private teacher episodes"

@@ -14,7 +14,7 @@ var world = newHordeSim(maxTicks = 2304, maxGames = 2)
 world.gameEventLoggingEnabled = false
 world.seatNames = ["daveey", "daveey-1", "knights-archers-phalanx",
                  "knights-archers-stand", "", "", "", ""]
-var engine = initDecisionEngine(world)
+var engine = initDecisionEngine(world, PromptSelection())
 
 ## Put a real horde on the board and give every seat a directive, so the view
 ## has something to report.
@@ -80,7 +80,7 @@ block theLastTurnBlockReportsWhatTheSeatJustDid:
   ## its cumulative kill count and nothing about the four seconds it had just
   ## spent, which is the one thing a commander needs to tell whether its last
   ## order worked (r1 review N11).
-  var engine2 = initDecisionEngine(world)
+  var engine2 = initDecisionEngine(world, PromptSelection())
   let before = parseJson(engine2.seatViewJson(world, 0, 0, 24))
   for key in ["your_kills", "your_hits", "your_shots", "team_kills",
               "zombies_gained"]:

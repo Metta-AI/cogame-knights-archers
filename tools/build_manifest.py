@@ -57,6 +57,11 @@ def intprop(default, lo=None, hi=None, desc=""):
     return p
 
 config_props = {
+    "promptVariant": {"type": "string", "enum": ["canonical", "plain", "numbered", "questions", "reordered",
+                      "heldout-briefing", "heldout-reference", "mixed"], "default": "canonical",
+                      "description": "Episode-stable rules wording; held-out wordings are evaluation only."},
+    "promptSeed": {"type": "integer", "minimum": 0, "default": 0,
+                   "description": "Independent prompt seed; mixed requires an explicit value."},
     "tokens": {"type": "array", "items": {"type": "string"},
                "minItems": 4, "maxItems": 4,
                "description": "One join token per seat."},

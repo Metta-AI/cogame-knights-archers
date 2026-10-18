@@ -106,7 +106,7 @@ proc hostedDirective(candidate: JsonNode, alias: string): JsonNode =
     order["face"] = %[candidate["face_x"], candidate["face_y"]]
   %*{"cogs": [order]}
 
-proc decision(view: JsonNode, seat, id: int, language: bool, operatorPrompt: string): JsonNode =
+proc decision(view: JsonNode, seat, id: int, language: bool, operatorPrompt: string, selection: PromptSelection): JsonNode =
   var properties = newJObject()
   var required = newJArray()
   for head in heads():
@@ -116,12 +116,15 @@ proc decision(view: JsonNode, seat, id: int, language: bool, operatorPrompt: str
   result = %*{"kind": "decision", "game": "knights-archers", "decision_id": id,
     "seat": seat, "engine_seat": seat, "turn": view["turn"],
     "semantic_view": view, "inbox": [],
-    "messages": [{"role": "system", "content": systemPromptFor(view["you"]["role"].getStr())},
+    "messages": [{"role": "system", "content": systemPromptFor(selection, view["you"]["role"].getStr())},
       {"role": "user", "content": userMessage(operatorPrompt, $view)}],
     "speech_messages": [],
     "action_schema": {"type": "object", "properties": properties,
       "required": required}, "typed_question": newJNull()}
 
+  result["semantic_view"] = copy(view)
+  result["semantic_view"]["prompt_template"] = selection.promptMetadata(
+    result["messages"][0]["content"].getStr(), result["messages"][1]["content"].getStr())
   result["inference_mode"] = if language: %"text_action" else: newJNull()
   if language:
     result["action_schema"] = %*{"type": "object", "properties": {
@@ -147,6 +150,7 @@ when isMainModule:
   for entry in manifest["variants"]:
     if entry["id"].getStr() == variant: variantConfig = entry["game_config"]
   doAssert not variantConfig.isNil
+  var selection: PromptSelection
   var game: SimServer
   var engine: DecisionEngine
   var views: array[4, JsonNode]
@@ -165,6 +169,10 @@ when isMainModule:
     case request["kind"].getStr()
     of "reset":
       doAssert request["players"].getInt() == 4
+      selection = promptSelection(request)
+      if request.hasKey("split") and request["split"].getStr() == "train":
+        doAssert selection.selectedVariant notin {pvHeldoutBriefing, pvHeldoutReference},
+          "held-out wording is evaluation only"
       var config = defaultGameConfig()
       config.update($variantConfig)
       config.seed = seedOf(request["seed"].getStr())
@@ -179,7 +187,7 @@ when isMainModule:
         game.step(inputs, prev)
         prev = inputs
         while prev.len < game.players.len: prev.add(InputState())
-      engine = initDecisionEngine(game)
+      engine = initDecisionEngine(game, selection)
       seat = 0
       id = 0
       waves = 0
@@ -188,7 +196,7 @@ when isMainModule:
           config.maxTicks div config.turnTicks))
         teachers[actor] = action(scriptedDirective(game.policyView(actor), blPhalanx).orders[0])
       engine.markTurn(game)
-      response = views[seat].decision(seat, id, language, operatorPrompt)
+      response = views[seat].decision(seat, id, language, operatorPrompt, selection)
     of "encode":
       doAssert waves < game.config.maxGames
       response = %*{"decision_id": id,
@@ -213,7 +221,7 @@ when isMainModule:
           inc rejected
           if rejected < 2:
             response = %*{"kind": "rejected", "reason": "parse_error",
-              "observation": views[seat].decision(seat, id, language, operatorPrompt)}
+              "observation": views[seat].decision(seat, id, language, operatorPrompt, selection)}
             stdout.flushFile()
             doAssert dup2(protocolFd, 1) >= 0
             stdout.writeLine($response)
@@ -248,7 +256,7 @@ when isMainModule:
       inc seat
       var observation: JsonNode
       if seat < 4:
-        observation = views[seat].decision(seat, id, language, operatorPrompt)
+        observation = views[seat].decision(seat, id, language, operatorPrompt, selection)
       else:
         for issued in engine.directives:
           for order in issued.orders:
@@ -290,7 +298,7 @@ when isMainModule:
               game.step(inputs, prev)
               prev = inputs
               while prev.len < game.players.len: prev.add(InputState())
-            engine = initDecisionEngine(game)
+            engine = initDecisionEngine(game, selection)
           seat = 0
           let turn = game.gameTicksElapsed() div game.config.turnTicks
           for actor in 0 ..< 4:
@@ -298,7 +306,7 @@ when isMainModule:
               game.config.maxTicks div game.config.turnTicks))
             teachers[actor] = action(scriptedDirective(game.policyView(actor), blPhalanx).orders[0])
           engine.markTurn(game)
-          observation = views[seat].decision(seat, id, language, operatorPrompt)
+          observation = views[seat].decision(seat, id, language, operatorPrompt, selection)
       response = %*{"kind": (if consumed: "consumed_rejection" else: "accepted"), "action": candidate,
         "observation": observation}
       if consumed: response["reason"] = %"parse_error"

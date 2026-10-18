@@ -24,7 +24,7 @@ while sent < 4:
     let decision = parseJson(message.data)
     if decision["type"].getStr() != "decision": continue
     let view = decision["view"]
-    let system = systemPromptFor(view["you"]["role"].getStr())
+    let system = systemPromptFor(promptSelection(decision["prompt_configuration"]), view["you"]["role"].getStr())
     let user = userMessage(getEnv("PLAYER_PROMPT"), $view)
     let request = client.requestFor(system, user, decision["slot"].getInt())
     var evidence = newDecisionAttempt($decision["id"].getInt(), "malformed-wire-fixture", aoModel)

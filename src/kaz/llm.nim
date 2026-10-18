@@ -2,7 +2,8 @@
 import std/[json, math, options, os, strutils, tables]
 import bitworld/decision_trajectory
 import curly
-import sim_types, directives
+import sim_types, directives, prompts
+export prompts
 
 type
   LlmClient* = ref object
@@ -105,12 +106,12 @@ and do not attack; regroup = move to the middle of your surviving squadmates.
 `face` biases your aim. `say` is SHOUTED and every hero hears it.
 """
 
-proc systemPromptFor*(role: string): string =
-  ## The fixed system prompt with the ONE `<ROLE>` line filled from the seat's
+proc systemPromptFor*(selection: PromptSelection, role: string): string =
+  ## The selected rules introduction with the ONE `<ROLE>` line filled from the seat's
   ## role. Both champions get the identical prompt otherwise: the knight and
   ## archer paragraphs are both present, and only the line naming which one
   ## this seat is differs.
-  SystemPrompt.replace("<ROLE>", (
+  SystemPrompt.replace(PromptSelection().introduction(), selection.introduction()).replace("<ROLE>", (
     if role == RoleKnight: "a KNIGHT" else: "an ARCHER"))
 
 proc operatorBlock*(prompt: string): string =
