@@ -17,8 +17,8 @@ system/user hashes. Bridge observations include `prompt_template` metadata.
 Training resets reject held-out wording.
 
 The source exporter accepts optional `PROMPT_VARIANT PROMPT_SEED` arguments
-after the variant. It requires a clean committed checkout and rejects held-out
-wordings. Mixed exports cycle five training wordings between games. The original combined
+after the variant. Run it from a clean committed checkout so its recorded source
+revision identifies the exported code. It rejects held-out wordings. Mixed exports cycle five training wordings between games. The original combined
 private trajectory stream and source manifest are retained.
 Use `tools/check_training_replay.nim REPLAY TRAJECTORY` to re-simulate every
 tick and compare every captured actuator mask and state hash. No automatic
