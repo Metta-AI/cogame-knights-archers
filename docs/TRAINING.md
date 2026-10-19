@@ -5,8 +5,9 @@
 `promptVariant` selects `canonical`, `plain`, `numbered`, `questions`, or
 `reordered`. `mixed` resolves from an explicit `promptSeed % 5` without
 consuming simulation randomness. `heldout-briefing` and `heldout-reference`
-are evaluation only. The canonical prompt is unchanged; variants replace
-only its introduction. Role-specific rules and action schemas remain identical.
+are evaluation only. The `knights-archers-rules-v2` bank varies complete arena, weapon, survival,
+scoring, control, and visibility explanations. Canonical text now clarifies the
+existing personal kill-credit tie-break; action syntax and role facts stay fixed.
 
 Selection lives in the decision engine, outside the positionally serialized
 simulation structures. Native players receive it in the private decision
@@ -17,8 +18,8 @@ Training resets reject held-out wording.
 
 The source exporter accepts optional `PROMPT_VARIANT PROMPT_SEED` arguments
 after the variant. It requires a clean committed checkout and rejects held-out
-wordings. Each episode writes its private trajectory and binary replay in
-addition to the combined stream. Replay filenames appear in the manifest.
+wordings. Mixed exports cycle five training wordings between games. The original combined
+private trajectory stream and source manifest are retained.
 Use `tools/check_training_replay.nim REPLAY TRAJECTORY` to re-simulate every
 tick and compare every captured actuator mask and state hash. No automatic
 labels or split assignment are added; independent review remains required.
@@ -65,11 +66,13 @@ Teacher prompts and actions consume only the ordinary private view. Hidden seed/
 
 Existing pre-modernization exports and optimizer reports remain historical evidence at source `a0c9f1c1786b6a70b502a6acb1d246da563f26d4`. They do not certify this source edition or deployed runtime. Fresh canonical exports use new directories.
 
-For a complete native wording check with published game timing, run the existing HTTP-fixture harness:
+The existing native HTTP-fixture harness exercises mixed wording, retries,
+provider failures, and private capture using its short protocol episode:
 
 ```sh
-python3 tools/test_native_trajectory.py GAME PLAYER PRIVATE_OUTPUT accepted --variant horde-short --wording heldout-briefing
+python3 tools/test_native_trajectory.py GAME PLAYER PRIVATE_OUTPUT
 check_training_replay PRIVATE_OUTPUT/accepted/replay.bitreplay PRIVATE_OUTPUT/accepted/trajectory.jsonl
 ```
 
-The harness validates actual request joins, episode-stable selection, and every attempt's prompt hashes. Omit `--variant` only for the existing short protocol fixtures. These checks establish transport and evidence correctness; they do not measure model quality or resistance to training collapse.
+These fixtures verify request handling and captured physical execution.
+They do not measure model quality or resistance to training collapse.

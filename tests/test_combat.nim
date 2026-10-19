@@ -2,7 +2,7 @@
 
 import
   std/[json, strutils],
-  kaz/[sim, llm, broadcast],
+  kaz/[sim, llm, broadcast, prompts],
   ./helpers
 
 proc check(condition: bool, what: string) =
@@ -165,7 +165,7 @@ block theKnightCooldownIsExact:
   check(sim.config.knightCooldown + sim.config.swingTicks == 22,
     "the knight's swing period must be 22 ticks (0.92 s), got " &
       $(sim.config.knightCooldown + sim.config.swingTicks))
-  let prompt = SystemPrompt
+  let prompt = systemPromptFor(PromptSelection(), RoleKnight)
   check(prompt.contains("once every 0.9 seconds"),
     "the system prompt must quote the knight's real swing period")
   check(not prompt.contains("once every 0.75 seconds"),

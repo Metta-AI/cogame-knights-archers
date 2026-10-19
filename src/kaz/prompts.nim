@@ -17,7 +17,7 @@ type
     seed*: int
 
 const
-  PromptBankVersion* = "knights-archers-rules-v1"
+  PromptBankVersion* = "knights-archers-rules-v2"
 
 proc promptSelection*(node: JsonNode): PromptSelection =
   if node.kind != JObject:
@@ -47,14 +47,3 @@ proc promptMetadata*(selection: PromptSelection, system, user: string): JsonNode
 proc selectionMetadata*(selection: PromptSelection): JsonNode =
   %*{"bank": PromptBankVersion, "variant": $selection.selectedVariant,
     "selection": $selection.variant, "seed": selection.seed}
-
-proc introduction*(selection: PromptSelection): string =
-  case selection.selectedVariant
-  of pvCanonical: "You are ONE hero defending a keep against a horde of the dead, in a top-down\narena 1235 by 659 pixels. The dead walk in at the EAST edge (x=1178) and march\nWEST toward your gate (x=40). Two knights and two archers hold the line\ntogether. You are <ROLE>.\n"
-  of pvPlain: "You control ONE hero, <ROLE>, in a squad of two knights and two archers.\nTogether you defend a keep against a horde of the dead in a top-down arena\n1235 by 659 pixels. The dead enter at the EAST edge (x=1178) and march WEST\ntoward your gate (x=40).\n"
-  of pvNumbered: "1. Control ONE hero: <ROLE>. Your squad has two knights and two archers.\n2. Defend the keep together against a horde of the dead.\n3. The top-down arena is 1235 by 659 pixels.\n4. The dead enter at the EAST edge (x=1178) and march WEST to your gate (x=40).\n"
-  of pvQuestions: "Who do you control? ONE hero, <ROLE>, in a squad of two knights and two archers.\nWhat do you defend together? A keep against a horde of the dead.\nWhere? A top-down arena 1235 by 659 pixels.\nWhere do the dead march? From the EAST edge (x=1178) WEST toward your gate (x=40).\n"
-  of pvReordered: "The dead enter at the EAST edge (x=1178) and march WEST toward the gate (x=40)\nin a top-down arena 1235 by 659 pixels. Two knights and two archers defend\nthis keep together against the horde. You control ONE of those heroes: <ROLE>.\n"
-  of pvHeldoutBriefing: "Keep-defense briefing: a horde of the dead advances WEST from the EAST edge\n(x=1178) to your gate (x=40). The top-down arena measures 1235 by 659 pixels.\nYour squad consists of two knights and two archers defending together.\nYou command ONE hero, <ROLE>.\n"
-  of pvHeldoutReference: "Assignment: ONE hero, <ROLE>. Squad: two knights and two archers.\nShared task: defend the keep against the horde of the dead.\nTop-down arena dimensions: 1235 by 659 pixels.\nEnemy route: EAST edge (x=1178), marching WEST toward your gate (x=40).\n"
-  of pvMixed: raise newException(Defect, "unresolved mixed wording")

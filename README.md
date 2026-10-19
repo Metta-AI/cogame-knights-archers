@@ -11,7 +11,7 @@ that touches **any** hero kills that hero, and the wave ends that instant. So
 does a zombie reaching the gate. Survive the whole 96-second wave and the squad
 banks a large bonus.
 
-Everybody's score is the same score. It is a fully cooperative game: the whole
+Scores share a team component plus a personal kill-credit tie-break. The whole
 per-seat kill-credit range is 0.004, which is smaller than one extra team kill
 (1/180), so killing more than your share is worth nothing if the line breaks.
 
