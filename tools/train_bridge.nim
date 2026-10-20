@@ -170,9 +170,10 @@ when isMainModule:
     of "reset":
       doAssert request["players"].getInt() == 4
       selection = promptSelection(request)
-      if request.hasKey("split") and request["split"].getStr() == "train":
-        doAssert selection.selectedVariant notin {pvHeldoutBriefing, pvHeldoutReference},
-          "held-out wording is evaluation only"
+      if selection.selectedVariant in {pvHeldoutBriefing, pvHeldoutReference}:
+        doAssert request.hasKey("split") and
+          request["split"].getStr() in ["evaluation", "validation", "test"],
+          "held-out wording requires an explicit evaluation split"
       var config = defaultGameConfig()
       config.update($variantConfig)
       config.seed = seedOf(request["seed"].getStr())

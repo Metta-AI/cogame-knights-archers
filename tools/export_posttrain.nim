@@ -43,7 +43,8 @@ when isMainModule:
     var decisions = 0
     var lastTurnKey = -1
     var steps = 0
-    let capture = newMatchCapture("knights-archers-" & variant & "-" & $seed,
+    let capture = newMatchCapture("knights-archers-" & variant & "-" & $seed &
+      "-" & $selection.selectedVariant & "-" & $selection.seed,
       "source-engine-" & GameVersion, revision, seed)
     while waves < config.maxGames:
       inc steps

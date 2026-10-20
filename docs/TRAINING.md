@@ -14,12 +14,14 @@ simulation structures. Native players receive it in the private decision
 envelope and reject changes during an episode. Teacher and bridge paths use
 the same renderer. Private captures retain selection and exact per-attempt
 system/user hashes. Bridge observations include `prompt_template` metadata.
-Training resets reject held-out wording.
+Held-out resets require an explicit `evaluation`, `validation`, or `test` split.
+Omitted, training, and unrecognized splits reject them.
 
 The source exporter accepts optional `PROMPT_VARIANT PROMPT_SEED` arguments
 after the variant. Run it from a clean committed checkout so its recorded source
 revision identifies the exported code. It rejects held-out wordings. Mixed exports cycle five training wordings between games. The original combined
-private trajectory stream and source manifest are retained.
+private trajectory stream and source manifest are retained. Episode IDs include
+selected wording and prompt seed; seed-family IDs remain independent of both.
 Use `tools/check_training_replay.nim REPLAY TRAJECTORY` to re-simulate every
 tick and compare every captured actuator mask and state hash. No automatic
 labels or split assignment are added; independent review remains required.
