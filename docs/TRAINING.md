@@ -1,5 +1,40 @@
 # Private training trajectories
 
+## Episode rules wording
+
+`promptVariant` selects `canonical`, `plain`, `numbered`, `questions`, or
+`reordered`. `mixed` resolves from an explicit `promptSeed % 5` without
+consuming simulation randomness. `heldout-briefing` and `heldout-reference`
+are evaluation only. The `knights-archers-rules-v2` bank varies complete arena, weapon, survival,
+scoring, control, and visibility explanations. Canonical text now clarifies the
+existing personal kill-credit tie-break; action syntax and role facts stay fixed.
+
+Selection lives in the decision engine, outside the positionally serialized
+simulation structures. Native players receive it in the private decision
+envelope and reject changes during an episode. Teacher and bridge paths use
+the same renderer. Private captures retain selection and exact per-attempt
+system/user hashes. Bridge observations include `prompt_template` metadata.
+Held-out resets require an explicit `evaluation`, `validation`, or `test` split.
+Omitted, training, and unrecognized splits reject them.
+
+The source exporter accepts optional `PROMPT_VARIANT PROMPT_SEED` arguments
+after the variant. Run it from a clean committed checkout so its recorded source
+revision identifies the exported code. It rejects held-out wordings. Mixed exports cycle five training wordings between games. The original combined
+private trajectory stream and source manifest are retained. Episode IDs include
+selected wording and prompt seed; seed-family IDs remain independent of both.
+Use `tools/check_training_replay.nim REPLAY TRAJECTORY` to re-simulate every
+tick and compare every captured actuator mask and state hash. No automatic
+labels or split assignment are added; independent review remains required.
+
+```sh
+export_posttrain PRIVATE_OUTPUT 10 1 default mixed 3
+python3 tools/test_prompt_games.py BRIDGE ORIGINAL_BRIDGE
+```
+
+The complete-game comparison covers all published variants, every wording,
+both bridge modes, and the original canonical renderer. Deterministic parity
+does not establish improved model play or prevention of training collapse.
+
 Production players, scripted teachers, and `--language` bridge decisions use the same private hero view and directive parser. Numeric bridge actions remain a separate experimental task.
 
 Build and exercise both bridge modes:
@@ -32,3 +67,14 @@ The exporter writes exclusive private files containing complete canonical trajec
 Teacher prompts and actions consume only the ordinary private view. Hidden seed/RNG state never enters policy input. Corpora require content review before training; synthetic native fixtures do not qualify real hosted sampling or reinforcement-learning provenance.
 
 Existing pre-modernization exports and optimizer reports remain historical evidence at source `a0c9f1c1786b6a70b502a6acb1d246da563f26d4`. They do not certify this source edition or deployed runtime. Fresh canonical exports use new directories.
+
+The existing native HTTP-fixture harness exercises mixed wording, retries,
+provider failures, and private capture using its short protocol episode:
+
+```sh
+python3 tools/test_native_trajectory.py GAME PLAYER PRIVATE_OUTPUT
+check_training_replay PRIVATE_OUTPUT/accepted/replay.bitreplay PRIVATE_OUTPUT/accepted/trajectory.jsonl
+```
+
+These fixtures verify request handling and captured physical execution.
+They do not measure model quality or resistance to training collapse.

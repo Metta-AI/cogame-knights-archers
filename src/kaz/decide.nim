@@ -25,6 +25,7 @@ import
   std/[json, monotimes, options, os, times],
   bitworld/decision_trajectory,
   sim, control, directives, baselines, llm
+export prompts
 
 type
   TurnDecision* = object
@@ -43,6 +44,7 @@ type
     registered*: bool
 
   DecisionEngine* = object
+    selection*: PromptSelection
     decisions*: seq[TurnDecision]
     ctl*: ControlState
     seats*: seq[SeatPolicy]
@@ -65,7 +67,8 @@ type
   DecisionExchange* = proc(requests: seq[JsonNode], timeoutMs: int):
     seq[string] {.closure.}
 
-proc initDecisionEngine*(sim: SimServer): DecisionEngine =
+proc initDecisionEngine*(sim: SimServer, selection: PromptSelection): DecisionEngine =
+  result.selection = selection
   result.ctl = initControlState(sim)
   result.seats = newSeq[SeatPolicy](sim.seatCount())
   result.directives = newSeq[SquadDirective](sim.seatCount())
@@ -393,6 +396,8 @@ proc turn*(
     engine.decisions[seat] = TurnDecision(observation: copy(views[seat]),
       executedAction: newJNull(), status: asFallback)
 
+    engine.decisions[seat].observation["prompt_selection"] = engine.selection.selectionMetadata()
+
   # --- which seats need a call? --------------------------------------------
   var open: seq[int]
   var failureCauses = newSeq[string](engine.seats.len)
@@ -427,7 +432,7 @@ proc turn*(
       let intentional = engine.seats[seat].registered
       var teacher = newDecisionAttempt($wave & "-" & $turnIndex & "-" & $seat & "-teacher",
         "scripted-" & $engine.seats[seat].baseline, if intentional: aoTeacher else: aoFallback)
-      teacher.prompt = %*[{"role": "system", "content": systemPromptFor(views[seat]["you"]["role"].getStr())},
+      teacher.prompt = %*[{"role": "system", "content": systemPromptFor(engine.selection, views[seat]["you"]["role"].getStr())},
         {"role": "user", "content": userMessage(DefaultOperatorPrompt, $views[seat])}]
       teacher.parsedAction = directive.actionJson()
       teacher.response = %($teacher.parsedAction)
@@ -474,6 +479,7 @@ proc turn*(
         "slot": seat,
         "attempt": attempt + 1,
         "timeout_ms": deadlineMs,
+        "prompt_configuration": {"promptVariant": $engine.selection.variant, "promptSeed": engine.selection.seed},
         "view": views[seat]
       })
     let started = getMonoTime()
@@ -578,6 +584,13 @@ proc turn*(
 
   for seat in 0 ..< engine.seats.len:
     engine.decisions[seat].executedAction = engine.directives[seat].actionJson()
+    var hashes = newJArray()
+    for attempt in engine.decisions[seat].attempts:
+      if attempt.prompt.kind == JArray and attempt.prompt.len == 2:
+        hashes.add(%*{"attempt_id": attempt.attemptId,
+          "prompt_template": engine.selection.promptMetadata(
+            attempt.prompt[0]["content"].getStr(), attempt.prompt[1]["content"].getStr())})
+    engine.decisions[seat].observation["prompt_hashes"] = hashes
 
   ## Every view for this turn has been built, and the sim is still on the
   ## turn's own tick: mark the counters the NEXT turn's `last_turn` reports

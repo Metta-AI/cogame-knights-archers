@@ -154,6 +154,7 @@ jobs:
           set -euo pipefail
           nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/bridge" tools/train_bridge.nim
           python3 tools/test_train_bridge.py "$RUNNER_TEMP/bridge"
+          python3 tools/test_prompt_games.py "$RUNNER_TEMP/bridge"
           nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/game" src/knights_archers.nim
           nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/player" src/knights_archers_player.nim
           nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/malformed-player" tools/test_malformed_player.nim

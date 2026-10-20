@@ -1,18 +1,21 @@
 ## Canonical private complete teacher corpus; shared SDK owns splits and labels.
 import std/[json, os, osproc, strutils]
 import bitworld/[spriteprotocol, decision_trajectory]
-import kaz/[sim, control, directives, baselines, decide, training_capture]
+import kaz/[sim, control, directives, baselines, decide, training_capture, prompts]
 
 const Variants = ["default", "horde-short", "horde-hard", "horde-tough"]
 
 when isMainModule:
   let args = commandLineParams()
-  if args.len notin 2 .. 4:
-    quit("usage: export_posttrain OUTPUT EPISODES [FIRST_SEED] [VARIANT]", 1)
+  if args.len notin [2, 3, 4, 6]:
+    quit("usage: export_posttrain OUTPUT EPISODES [FIRST_SEED] [VARIANT] [PROMPT_VARIANT PROMPT_SEED]", 1)
+  let configured = promptSelection(if args.len == 6:
+    %*{"promptVariant": args[4], "promptSeed": parseInt(args[5])} else: newJObject())
+  doAssert configured.selectedVariant notin {pvHeldoutBriefing, pvHeldoutReference}, "held-out wording is evaluation only"
   let output = args[0]
   let episodes = parseInt(args[1])
   let firstSeed = if args.len >= 3: parseInt(args[2]) else: 1
-  let variant = if args.len == 4: args[3] else: "default"
+  let variant = if args.len >= 4: args[3] else: "default"
   if episodes < 10 or firstSeed < 1: quit("ten episodes and a positive seed are required", 1)
   if variant notin Variants: quit("unknown variant", 1)
   if dirExists(output) or fileExists(output): quit("output already exists", 1)
@@ -27,6 +30,8 @@ when isMainModule:
   var complete: seq[string]
   var runs = newJArray()
   for seed in firstSeed ..< firstSeed + episodes:
+    var selection = configured
+    if selection.variant == pvMixed: selection.seed += seed - firstSeed
     var config = defaultGameConfig()
     config.update($variantConfig)
     config.seed = seed
@@ -38,7 +43,8 @@ when isMainModule:
     var decisions = 0
     var lastTurnKey = -1
     var steps = 0
-    let capture = newMatchCapture("knights-archers-" & variant & "-" & $seed,
+    let capture = newMatchCapture("knights-archers-" & variant & "-" & $seed &
+      "-" & $selection.selectedVariant & "-" & $selection.seed,
       "source-engine-" & GameVersion, revision, seed)
     while waves < config.maxGames:
       inc steps
@@ -74,7 +80,7 @@ when isMainModule:
       prev = inputs
       while prev.len < game.players.len: prev.add(InputState())
       if before != Playing and game.phase == Playing:
-        engine = initDecisionEngine(game)
+        engine = initDecisionEngine(game, selection)
         for seat in engine.seats.mitems:
           seat.registered = true
           seat.baseline = blPhalanx

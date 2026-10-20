@@ -2,7 +2,8 @@ import
   std/[json, os, sysrand],
   bitworld/runtime,
   kaz/sim,
-  kaz/server
+  kaz/server,
+  kaz/prompts
 
 const LegacyFixedSeed = 0xA6019
   ## The old compiled-in default seed. Hosted variant configs historically
@@ -101,6 +102,7 @@ when isMainModule:
 
   echo "starting knights-archers on ", runtimeConfig.host, ":", runtimeConfig.port
   runServerLoop(
+    (if runtimeConfig.replayMode: PromptSelection() else: promptSelection(parseJson(runtimeConfig.config))),
     runtimeConfig.host,
     runtimeConfig.port,
     config,

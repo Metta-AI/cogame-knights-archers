@@ -145,12 +145,12 @@ block theResultsSchemaMatchesTheDocumentKeyForKey:
   check(props["reason"]["enum"].len == 3, "reason is a closed enum of three")
   check(props["endRule"]["enum"].len == 6, "endRule is a closed enum of six")
 
-block everyConfigFieldSimConfigReadsIsDeclared:
+block everyConfigFieldHasAReader:
   ## The config_schema is what the platform validates a variant against, so a
   ## field the sim reads but the schema does not declare cannot be set.
   let
     props = manifest["game"]["config_schema"]["properties"]
-    source = readFile("src/kaz/sim_config.nim")
+    source = readFile("src/kaz/sim_config.nim") & readFile("src/kaz/prompts.nim")
   for variant in manifest["variants"]:
     for key, _ in variant["game_config"]:
       check(props.hasKey(key),
@@ -162,7 +162,7 @@ block everyConfigFieldSimConfigReadsIsDeclared:
     if key in ["num_agents", "seed"]:
       continue
     check(source.contains("\"" & key & "\""),
-      "config_schema declares " & key & ", which sim_config.update never reads")
+      "config_schema declares " & key & ", which neither config reader reads")
 
 block theDocsAndProtocolsAreNonEmptyTextObjects:
   let docs = manifest["game"]["docs"]

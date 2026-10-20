@@ -63,7 +63,7 @@ scores[s]  = teamScore + credit[s]
 win[s]     = teamScore >= 0.5
 ```
 
-Everybody's score is the same score. The personal credit range (0.004) is
+Scores share a team component plus personal kill credit. The credit range (0.004) is
 **smaller than one extra team kill** (1/180 = 0.005556), so killing more than
 your share is worth nothing if the line breaks.
 

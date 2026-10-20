@@ -83,6 +83,7 @@ when isMainModule:
     nil
 
   var socket = dial(ConnectAttempts)
+  var episodeSelection: Option[PromptSelection]
   if socket == nil:
     quit("knights-archers player: game never accepted a connection", 1)
   echo "knights-archers player: connected"
@@ -117,6 +118,11 @@ when isMainModule:
         if message.kind == TextMessage:
           let decision = parseJson(message.data)
           if decision{"type"}.getStr() == "decision":
+            let selection = promptSelection(decision["prompt_configuration"])
+            if episodeSelection.isSome:
+              doAssert episodeSelection.get() == selection, "prompt selection changed during episode"
+            else:
+              episodeSelection = some(selection)
             var reply = %*{
               "type": "action",
               "protocol": "kaz.player.v2",
@@ -131,7 +137,7 @@ when isMainModule:
               reply["source"] = %"fallback"
               reply["cause"] = %"no_credentials"
             else:
-              let system = systemPromptFor(view["you"]["role"].getStr())
+              let system = systemPromptFor(selection, view["you"]["role"].getStr())
               let user = userMessage(prompt, $view)
               let request = client.requestFor(system, user, decision["slot"].getInt())
               evidence.prompt = %*[{"role": "system", "content": system},

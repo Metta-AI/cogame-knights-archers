@@ -40,7 +40,7 @@ proc validReply(request: JsonNode): string =
 
 block allFourSeatsSeeOnePreActionState:
   var world = llmWorld()
-  var engine = initDecisionEngine(world)
+  var engine = initDecisionEngine(world, PromptSelection())
   engine.seatEveryoneLlm()
   engine.ctl.observeHeroes(world)
   var batches: seq[seq[JsonNode]]
@@ -71,7 +71,7 @@ block allFourSeatsSeeOnePreActionState:
 
 block invalidActionsRetryExactlyOnce:
   var world = llmWorld()
-  var engine = initDecisionEngine(world)
+  var engine = initDecisionEngine(world, PromptSelection())
   engine.seatEveryoneLlm()
   engine.ctl.observeHeroes(world)
   var attempts = 0
@@ -98,7 +98,7 @@ block invalidActionsRetryExactlyOnce:
 
 block missingActionsHaveOneSharedDeadlineAndFallback:
   var world = llmWorld()
-  var engine = initDecisionEngine(world)
+  var engine = initDecisionEngine(world, PromptSelection())
   engine.seatEveryoneLlm()
   engine.ctl.observeHeroes(world)
   var deadlines: seq[int]
@@ -127,7 +127,7 @@ block missingActionsHaveOneSharedDeadlineAndFallback:
 
 block aCredentialFreePlayerReportsFallbackImmediately:
   var world = llmWorld()
-  var engine = initDecisionEngine(world)
+  var engine = initDecisionEngine(world, PromptSelection())
   engine.seatEveryoneLlm()
   engine.ctl.observeHeroes(world)
   var batches = 0
@@ -155,7 +155,7 @@ block aCredentialFreePlayerReportsFallbackImmediately:
 
 block theBudgetGuardSettlesEarlyRatherThanOverrunning:
   var world = llmWorld()
-  var engine = initDecisionEngine(world)
+  var engine = initDecisionEngine(world, PromptSelection())
   engine.seatEveryoneLlm()
   engine.ctl.observeHeroes(world)
   let elapsed = world.config.wallClockBudgetSeconds -
@@ -198,7 +198,7 @@ block theShippedVariantsPaceThemselvesInsideTheBudget:
 
 block playerCannotAssertServerTeacherOrigin:
   var world = llmWorld()
-  var engine = initDecisionEngine(world)
+  var engine = initDecisionEngine(world, PromptSelection())
   engine.seatEveryoneLlm()
   let exchange: DecisionExchange = proc(requests: seq[JsonNode], timeoutMs: int): seq[string] =
     result = newSeq[string](requests.len)
@@ -216,7 +216,7 @@ block playerCannotAssertServerTeacherOrigin:
 
 block modelResponseMustMatchExecutedProposal:
   var world = llmWorld()
-  var engine = initDecisionEngine(world)
+  var engine = initDecisionEngine(world, PromptSelection())
   engine.seatEveryoneLlm()
   let exchange: DecisionExchange = proc(requests: seq[JsonNode], timeoutMs: int): seq[string] =
     result = newSeq[string](requests.len)
@@ -239,7 +239,7 @@ block modelResponseMustMatchExecutedProposal:
 
 block aScriptedTeacherDoesNotClaimModelInference:
   var world = llmWorld()
-  var engine = initDecisionEngine(world)
+  var engine = initDecisionEngine(world, PromptSelection())
   for seat in engine.seats.mitems:
     seat.registered = true
   discard engine.turn(world, 0, 24, 0,
@@ -260,7 +260,7 @@ block aScriptedTeacherDoesNotClaimModelInference:
 
 block anUnregisteredSeatStillPlaysPhalanx:
   var world = llmWorld()
-  var engine = initDecisionEngine(world)
+  var engine = initDecisionEngine(world, PromptSelection())
   engine.ctl.observeHeroes(world)
   let exchange: DecisionExchange = proc(
     requests: seq[JsonNode], timeoutMs: int

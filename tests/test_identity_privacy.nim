@@ -24,7 +24,7 @@ for seat in 0 ..< world.seatCount():
   world.seatNames[seat] = Sentinel & "-" & $seat
   world.players[seat].address = Sentinel & "-" & $seat
 
-var engine = initDecisionEngine(world)
+var engine = initDecisionEngine(world, PromptSelection())
 for i in 0 ..< 30:
   world.spawnZombies()
   world.updateZombies()
@@ -42,7 +42,7 @@ block noSentinelReachesASeat:
     let user = userMessage(
       "hold a line, do not chase", view)
     check(not user.contains(Sentinel), "the LLM user message leaked it")
-    check(not systemPromptFor(world.roleForSeat(seat)).contains(Sentinel),
+    check(not systemPromptFor(PromptSelection(), world.roleForSeat(seat)).contains(Sentinel),
       "the LLM system prompt leaked it")
 
 block noSentinelInADirectiveRecord:

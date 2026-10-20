@@ -1325,6 +1325,7 @@ proc squadAlias(sim: SimServer, order: int): string =
     IdentityNames[sim.slotIdentityIndex(order)]
 
 proc runServerLoop*(
+  selection: PromptSelection,
   host = DefaultHost,
   port = DefaultPort,
   initialConfig = defaultGameConfig(),
@@ -1459,7 +1460,7 @@ proc runServerLoop*(
   let squadMode = not replayLoaded and config.numAgents > 0
   var
     engine =
-      if squadMode: initDecisionEngine(sim) else: DecisionEngine()
+      if squadMode: initDecisionEngine(sim, selection) else: DecisionEngine()
     squadsBuilt = false
     squadForceStart = false
     lastTurnKey = -1
